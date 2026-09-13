@@ -18,7 +18,12 @@ carries the full API context; read it before starting a sub-issue.
 
 ```
 src/Gateway.php          AbstractGateway: key and host parameters (messages land per issue)
-tests/                   PHPUnit 10, Omnipay\Tests\GatewayTestCase + mock HTTP client
+src/Keys.php             key format, role, mode, pair and testMode checks
+src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
+src/Message/             AbstractRequest (URLs, headers, send helpers), AbstractResponse
+                         (JSON:API parsing, errors, ambiguity), HttpResult
+tests/                   PHPUnit 10, Omnipay test cases + mock HTTP client
+tests/Fixtures/          Probe request/response classes that expose the foundation
 .github/workflows/ci.yml validate, lint, analyse, test on PHP 8.1–8.4
 ```
 

@@ -18,6 +18,11 @@ use Omnipay\Common\AbstractGateway;
  */
 class Gateway extends AbstractGateway
 {
+    /**
+     * Sent in the User-Agent header. Bumped with each release.
+     */
+    public const VERSION = '0.1.0-dev';
+
     public const DEFAULT_API_BASE_URL = 'https://api.tryedge.io/v2/';
 
     public const DEFAULT_DASHBOARD_HOST = 'https://dashboard.tryedge.io';
