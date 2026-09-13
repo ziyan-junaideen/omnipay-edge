@@ -1,0 +1,53 @@
+{
+    "name": "ziyan-junaideen/omnipay-edge",
+    "description": "Edge Payment Technologies gateway for the Omnipay payment processing library",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["omnipay", "payment", "gateway", "edge", "tryedge", "merchant", "pay"],
+    "homepage": "https://github.com/ziyan-junaideen/omnipay-edge",
+    "authors": [
+        {
+            "name": "Ziyan Junaideen",
+            "email": "ziyan@jdeen.com"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "omnipay/common": "^3.2"
+    },
+    "require-dev": {
+        "omnipay/tests": "^4.2",
+        "phpunit/phpunit": "^10.5",
+        "squizlabs/php_codesniffer": "^3.10",
+        "phpstan/phpstan": "^2.0",
+        "php-http/guzzle7-adapter": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Omnipay\\Edge\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Omnipay\\Edge\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "lint": "phpcs",
+        "analyse": "phpstan analyse --memory-limit=512M",
+        "check": [
+            "@lint",
+            "@analyse",
+            "@test"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
