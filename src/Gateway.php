@@ -41,15 +41,13 @@ use Omnipay\Edge\Message\UpdateWebhookSubscriptionRequest;
  *
  * The gateway stores nothing. Customers and addresses have no idempotency on Edge,
  * so they are explicit calls and the caller persists the ids they return.
- *
- * Work in progress: request messages are tracked in the repository's issues.
  */
 class Gateway extends AbstractGateway
 {
     /**
      * Sent in the User-Agent header. Bumped with each release.
      */
-    public const VERSION = '0.1.0-dev';
+    public const VERSION = '0.1.0';
 
     public const DEFAULT_API_BASE_URL = 'https://api.tryedge.io/v2/';
 

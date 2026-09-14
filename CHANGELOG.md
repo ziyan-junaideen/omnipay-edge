@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-14
+
+The first release.
+
 ### Added
 
 - Project skeleton: `Gateway` with key and host parameters, PHPUnit, PHPCS
@@ -65,7 +69,17 @@ All notable changes to this project are documented here. The format follows
   Responses tell an intent from a subscription with `getKind()`; only an active
   subscription is successful. A payment demand's `getSubscriptionReference()` names its
   subscription.
+- Webhook subscriptions: `createWebhookSubscription()` checks `url` (absolute https),
+  `description` (at least 10 characters), `events` (a non-empty list from
+  `WebhookEvents::RECOMMENDED`) and `concurrencyLimit` (1 to 100) before sending, and
+  refuses a `mode` other than the secret key's; `fetchWebhookSubscription()`,
+  `updateWebhookSubscription()` (only the attributes given, never `mode`) and
+  `archiveWebhookSubscription()`. `WebhookSubscriptionResponse` exposes the secret key and
+  `isNotFound()`, the one answer that means a new subscription is needed.
 - Documentation: the README covers installation, configuration (keys, hosts and local-dev
   TLS), the end-to-end payment flow, why `pending` is not paid, the consumer contract,
   retrying a failed payment, limitations and the test-card table.
   `docs/sandbox-checklist.md` is a manual end-to-end run against a sandbox account.
+
+[Unreleased]: https://github.com/ziyan-junaideen/omnipay-edge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ziyan-junaideen/omnipay-edge/releases/tag/v0.1.0

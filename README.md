@@ -3,10 +3,8 @@
 **Edge Payment Technologies gateway for the Omnipay PHP payment processing library**
 
 [![CI](https://github.com/ziyan-junaideen/omnipay-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/ziyan-junaideen/omnipay-edge/actions/workflows/ci.yml)
-
-> **Pre-release.** Not yet published to Packagist, and the API may change before
-> v0.1.0. Progress is tracked in the
-> [issues](https://github.com/ziyan-junaideen/omnipay-edge/issues).
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/ziyan-junaideen/omnipay-edge.svg)](https://packagist.org/packages/ziyan-junaideen/omnipay-edge)
+[![Total Downloads](https://img.shields.io/packagist/dt/ziyan-junaideen/omnipay-edge.svg)](https://packagist.org/packages/ziyan-junaideen/omnipay-edge)
 
 [Omnipay](https://github.com/thephpleague/omnipay) is a framework-agnostic,
 multi-gateway payment processing library for PHP. This package adds support for
@@ -30,7 +28,8 @@ This is an independent package, not an official Edge Payment Technologies produc
   [webhook subscriptions](#webhook-subscriptions)
 - [Ambiguous outcomes](#ambiguous-outcomes)
 - [Limitations and non-goals](#limitations-and-non-goals)
-- [Test cards](#test-cards) and the [sandbox checklist](docs/sandbox-checklist.md)
+- [Test cards](#test-cards) and the
+  [sandbox checklist](https://github.com/ziyan-junaideen/omnipay-edge/blob/main/docs/sandbox-checklist.md)
 
 ## Requirements
 
@@ -42,12 +41,18 @@ This is an independent package, not an official Edge Payment Technologies produc
 
 ## Installation
 
-Not yet published to Packagist. Once released, install the gateway together with a
-PSR-18 client:
+Install the gateway with [Composer](https://getcomposer.org/), together with a PSR-18
+HTTP client:
 
 ```bash
 composer require ziyan-junaideen/omnipay-edge php-http/guzzle7-adapter
 ```
+
+`omnipay/common` sends requests through a PSR-18 client but doesn't ship one, and Composer
+won't stop you installing without one. With no client, `Omnipay::create('Edge')` throws
+`Http\Discovery\Exception\NotFoundException`. `php-http/guzzle7-adapter` is one choice;
+any PSR-18 client that `php-http/discovery` finds works, or pass your own client to
+`Omnipay::create()` (see [local development](#local-development)).
 
 ## Configuration
 
@@ -1198,8 +1203,9 @@ the confirm.
   Prefer `4005519200000004` for a success.
 - Don't use `4242…`: that's Stripe's test card.
 
-The [sandbox checklist](docs/sandbox-checklist.md) walks through these cards end to end
-against a sandbox account.
+The
+[sandbox checklist](https://github.com/ziyan-junaideen/omnipay-edge/blob/main/docs/sandbox-checklist.md)
+walks through these cards end to end against a sandbox account.
 
 ## Development
 
