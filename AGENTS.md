@@ -20,12 +20,14 @@ carries the full API context; read it before starting a sub-issue.
 src/Gateway.php          AbstractGateway: key and host parameters, one method per message
 src/Keys.php             key format, role, mode, pair and testMode checks
 src/IdempotencyKey.php   fingerprint(): a caller-derived key, HMAC of canonical facts
+src/PaymentState.php     processor_state to Omnipay outcomes and decline messages, no I/O
 src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
 src/CardMapper.php       CreditCard to customer and address attributes, card field names
 src/Exception/           InvalidFieldException (a local check that names the parameter),
                          IdempotencyConflictException (a replayed key with other facts)
 src/Message/             AbstractRequest (URLs, headers, send helpers), AbstractResponse
-                         (JSON:API parsing, errors, ambiguity), HttpResult, and one
+                         (JSON:API parsing, errors, ambiguity), HttpResult,
+                         AbstractPaymentDemandResponse (shared demand getters), and one
                          request/response class per API call
 tests/                   PHPUnit 10, Omnipay test cases + mock HTTP client
 tests/Message/           MessageTestCase asserts the one request sent, headers and body
@@ -112,6 +114,12 @@ integration hard-coded one and broke.
 A successful confirm leaves a demand `pending`: **Edge accepted it but has not sent it
 to the card network.** Card-network declines (CVV mismatch, insufficient funds, lost or
 stolen card) arrive later as `failed`. Only `succeeded` means paid.
+
+`ready`, `canceled` (intent) and `disputed`, `reversed` (demand) are declared in the
+schemas but never set. `GET payment_demands/{id}` looks in demands before intents, and
+a confirmed intent's demand shares its id, so the GET never returns `confirmed`.
+`cvc2_check` defaults to `unprocessed` and the AVS fields to `unverified`; there is no
+decline reason in the view (`failure_reason` is a column, not an attribute).
 
 ## Testing
 

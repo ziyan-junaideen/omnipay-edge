@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnipay\Edge\Message;
 
 use Omnipay\Common\Message\RequestInterface;
+use Omnipay\Edge\PaymentState;
 
 /**
  * The payment demand created by purchase() (`CoreHTTP.Views.PaymentDemands`).
@@ -13,20 +14,23 @@ use Omnipay\Common\Message\RequestInterface;
  * always false. Check isAwaitingPaymentMethod(), then hand getClientData() to the
  * browser to mount Edge's hosted payment form.
  *
- * When the idempotency key was used before, Edge returns that demand in whatever
- * state it has reached. A demand already `pending`, `processing` or `succeeded` has
- * been confirmed: poll it rather than mounting the form again.
+ * getProcessorState() is `incomplete` for a new demand. When the idempotency key was
+ * used before, Edge returns that demand in whatever state it has reached. A demand
+ * already `pending`, `processing` or `succeeded` has been confirmed: poll it with
+ * fetchTransaction() rather than mounting the form again.
  */
-class PurchaseResponse extends AbstractResponse
+class PurchaseResponse extends AbstractPaymentDemandResponse
 {
-    public const TYPE = 'payment_demands';
-
     /**
      * `processor_state` values the hosted payment form can still collect a card for:
      * a new intent (`incomplete`, or the declared but unused `ready`) and a `failed`
      * demand, which is retried on the same id.
      */
-    private const AWAITING_PAYMENT_METHOD_STATES = ['incomplete', 'ready', 'failed'];
+    private const AWAITING_PAYMENT_METHOD_STATES = [
+        PaymentState::INCOMPLETE,
+        PaymentState::READY,
+        PaymentState::FAILED,
+    ];
 
     /**
      * Attributes that must come back as sent.
@@ -54,7 +58,7 @@ class PurchaseResponse extends AbstractResponse
      */
     public function __construct(RequestInterface $request, HttpResult $result, array $sent)
     {
-        parent::__construct($request, $result, self::TYPE);
+        parent::__construct($request, $result);
 
         $this->sent = $sent;
     }
@@ -76,62 +80,6 @@ class PurchaseResponse extends AbstractResponse
         return parent::isSuccessful()
             && $this->getMismatches() === []
             && in_array($this->getProcessorState(), self::AWAITING_PAYMENT_METHOD_STATES, true);
-    }
-
-    /**
-     * The demand id. The same id is confirmed later.
-     */
-    public function getTransactionReference(): ?string
-    {
-        return $this->getResourceId();
-    }
-
-    /**
-     * The `purchase_reference`, sent from `transactionId`.
-     */
-    public function getTransactionId(): ?string
-    {
-        return $this->stringAttribute('purchase_reference');
-    }
-
-    /**
-     * `incomplete` for a new demand. A replayed key returns the demand's current state.
-     */
-    public function getProcessorState(): ?string
-    {
-        return $this->stringAttribute('processor_state');
-    }
-
-    public function getAmountCents(): ?int
-    {
-        $amount = $this->getAttribute('amount_cents');
-
-        return is_int($amount) ? $amount : null;
-    }
-
-    public function getCurrency(): ?string
-    {
-        return $this->stringAttribute('amount_currency');
-    }
-
-    public function getIdempotencyKey(): ?string
-    {
-        return $this->stringAttribute('idempotency_key');
-    }
-
-    public function getCustomerReference(): ?string
-    {
-        return $this->getRelationshipId('payer');
-    }
-
-    public function getBillingAddressReference(): ?string
-    {
-        return $this->getRelationshipId('billing_address');
-    }
-
-    public function getShippingAddressReference(): ?string
-    {
-        return $this->getRelationshipId('shipping_address');
     }
 
     /**

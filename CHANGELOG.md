@@ -25,3 +25,8 @@ All notable changes to this project are documented here. The format follows
   A replayed idempotency key whose demand differs from the request throws
   `IdempotencyConflictException`. `IdempotencyKey::fingerprint()` derives a key from
   the purchase facts.
+- `fetchTransaction()` reads a payment demand, optionally with `include=payment_method`.
+  `PaymentState` maps each `processor_state` to Omnipay's successful, pending, cancelled
+  and notification outcomes (only `succeeded` is paid), flags `disputed` and `reversed`
+  for reconciliation and unknown states as unrecognised, and picks a shopper message for
+  a failed demand from the CVC and AVS checks.

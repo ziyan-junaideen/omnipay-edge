@@ -11,6 +11,7 @@ use Omnipay\Edge\Message\CreateCustomerRequest;
 use Omnipay\Edge\Message\FetchAddressRequest;
 use Omnipay\Edge\Message\FetchCardRequest;
 use Omnipay\Edge\Message\FetchCustomerRequest;
+use Omnipay\Edge\Message\FetchTransactionRequest;
 use Omnipay\Edge\Message\PurchaseRequest;
 use Omnipay\Edge\Message\UpdateCustomerRequest;
 
@@ -192,6 +193,18 @@ class Gateway extends AbstractGateway
     public function purchase(array $parameters = []): PurchaseRequest
     {
         return $this->message(PurchaseRequest::class, $parameters);
+    }
+
+    /**
+     * Reads a payment demand, for polling. Only a `succeeded` demand is successful:
+     * `pending` and `processing` are not paid yet. Prefer webhooks.
+     *
+     * @param array<string, mixed> $parameters `transactionReference`, and optionally
+     *                                         `includePaymentMethod`
+     */
+    public function fetchTransaction(array $parameters = []): FetchTransactionRequest
+    {
+        return $this->message(FetchTransactionRequest::class, $parameters);
     }
 
     /**

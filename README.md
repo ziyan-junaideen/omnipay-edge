@@ -189,7 +189,7 @@ may not be `incomplete`:
 | --- | --- | --- |
 | `incomplete` | true | Mount the payment form |
 | `failed` | true | Mount the form again: the shopper retries with a card on the same demand |
-| `pending`, `processing` | false | Already confirmed. Wait for the webhook or poll |
+| `pending`, `processing` | false | Already confirmed. Wait for the webhook or poll with `fetchTransaction()` |
 | `succeeded` | false | Already paid. Don't charge again |
 
 #### In the browser
@@ -231,6 +231,85 @@ Edge's `assets/js/edge.js`:
 `payment_method_changed` fires whenever the card fields change, including after a
 successful verification. An edited card invalidates the earlier result, so check
 verification again before you submit.
+
+### Payment status
+
+`fetchTransaction()` reads a demand by its id. **Only `succeeded` is paid.** After a
+successful confirm the demand is `pending`: Edge accepted it but hasn't sent it to the
+card network yet. Declines (a wrong CVC, insufficient funds, a lost or stolen card)
+arrive later as `failed`.
+
+```php
+$response = $gateway->fetchTransaction([
+    'transactionReference' => $demandId,
+    'includePaymentMethod' => true,   // optional: adds include=payment_method
+])->send();
+
+if ($response->getPaymentState() === null) {
+    // not read: $response->getHttpStatus(), $response->getMessage()
+} elseif ($response->isSuccessful()) {
+    // paid: check getAmountCents() and getCurrency() against the order first
+} elseif ($response->isPending()) {
+    // not paid yet: wait for the webhook, or poll again
+} elseif ($response->isFailed()) {
+    $response->getMessage();   // a message for the shopper
+} else {
+    // not paid: see the table below and PaymentState
+}
+```
+
+Before marking an order paid, check that `getAmountCents()`, `getCurrency()` and
+`getTransactionId()` match it. `fetchTransaction()` returns whatever demand the id
+names, so a stale or mixed-up id reports another payment.
+
+`includePaymentMethod` accepts a boolean or a boolean string such as `"false"`; anything
+else throws `Exception\InvalidFieldException` before sending.
+
+The mapping lives in `Omnipay\Edge\PaymentState`, which has no I/O:
+
+| `processor_state` | Kind | `isSuccessful()` | `isPending()` | `isCancelled()` | Notification status |
+| --- | --- | --- | --- | --- | --- |
+| `incomplete` | intent | no | no | no | `pending` |
+| `ready` | intent | no | no | no | `pending` |
+| `confirmed` | intent | no | yes | no | `pending` |
+| `canceled` | intent | no | no | yes | `failed` |
+| `pending` | demand | no | **yes** | no | `pending` |
+| `processing` | demand | no | **yes** | no | `pending` |
+| `succeeded` | demand | **yes** | no | no | `completed` |
+| `failed` | demand | no | no | no | `failed` |
+| `disputed`, `reversed` | demand | no | no | no | `completed` |
+| anything else | | no | no | no | `pending` |
+
+- `ready`, `canceled`, `disputed` and `reversed` are declared by Edge but not set by
+  it today. A confirmed intent is returned as its demand, so `fetchTransaction()`
+  never shows `confirmed`.
+- `disputed` and `reversed` set `needsReconciliation()`: check the order by hand.
+- A state the gateway doesn't know sets `isUnrecognised()` and is never treated as
+  paid. There is no `refunded` state: refunds are separate refund demands.
+- A `failed` demand can be retried **on the same id**: verify a card in the payment
+  form again, then confirm again.
+
+Edge has no decline reason. For a failed demand, `getMessage()` reads the card checks
+(`getCvc2Check()`, `getAddressLine1Verification()`, `getPostalCodeVerification()`):
+
+- `cvc2_check` is `mismatch` or `missing`: "The security code (CVC) didn't match. Check
+  it or try another card."
+- Otherwise, either address check is `mismatch`: "The billing address didn't match the
+  card."
+- Otherwise a generic decline. `cvc2_check: unprocessed` is Edge's default, not a
+  failure; the sandbox's Incorrect-CVC card reports it.
+
+`PaymentState::declineMessage()` gives the same message from the raw values.
+
+#### Polling
+
+Webhooks are the source of truth. If you poll as well:
+
+- Poll every 2 seconds, backing off to about 4 seconds.
+- The sandbox takes 0 to 25 seconds to authorise.
+- Edge never retries the call to the card processor (its authorize jobs run with
+  `max_attempts: 1`), so a demand can stay `processing`. Stop polling after a bounded
+  time, keep the order pending, and let the webhook settle it.
 
 ### Keys and modes
 
