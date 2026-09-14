@@ -7,17 +7,20 @@ namespace Omnipay\Edge;
 use Omnipay\Common\AbstractGateway;
 use Omnipay\Edge\Message\AbstractRequest;
 use Omnipay\Edge\Message\AcceptNotificationRequest;
+use Omnipay\Edge\Message\ArchiveWebhookSubscriptionRequest;
 use Omnipay\Edge\Message\CompletePurchaseRequest;
 use Omnipay\Edge\Message\CompleteSubscriptionRequest;
 use Omnipay\Edge\Message\CreateAddressRequest;
 use Omnipay\Edge\Message\CreateCustomerRequest;
 use Omnipay\Edge\Message\CreateSubscriptionRequest;
+use Omnipay\Edge\Message\CreateWebhookSubscriptionRequest;
 use Omnipay\Edge\Message\FetchAddressRequest;
 use Omnipay\Edge\Message\FetchCardRequest;
 use Omnipay\Edge\Message\FetchCustomerRequest;
 use Omnipay\Edge\Message\FetchRefundRequest;
 use Omnipay\Edge\Message\FetchSubscriptionRequest;
 use Omnipay\Edge\Message\FetchTransactionRequest;
+use Omnipay\Edge\Message\FetchWebhookSubscriptionRequest;
 use Omnipay\Edge\Message\ListRefundsRequest;
 use Omnipay\Edge\Message\ListSubscriptionChargesRequest;
 use Omnipay\Edge\Message\Notification;
@@ -26,6 +29,7 @@ use Omnipay\Edge\Message\RefundRequest;
 use Omnipay\Edge\Message\RetrySubscriptionChargeRequest;
 use Omnipay\Edge\Message\UpdateCustomerRequest;
 use Omnipay\Edge\Message\UpdateSubscriptionRequest;
+use Omnipay\Edge\Message\UpdateWebhookSubscriptionRequest;
 
 /**
  * Edge Payment Technologies gateway.
@@ -379,6 +383,54 @@ class Gateway extends AbstractGateway
         $request = $this->createRequest(AcceptNotificationRequest::class, $parameters);
 
         return $request->send();
+    }
+
+    /**
+     * Registers a webhook endpoint with Edge. Persist the returned id and secret key per
+     * mode: there is no idempotency, so a retried create registers a duplicate.
+     *
+     * @param array<string, mixed> $parameters `url` (https), `description` (10 characters
+     *                                         or more), `events` (from
+     *                                         WebhookEvents::RECOMMENDED), and optionally
+     *                                         `mode` (the secret key's, which it must
+     *                                         match) and `concurrencyLimit` (1–100)
+     */
+    public function createWebhookSubscription(array $parameters = []): CreateWebhookSubscriptionRequest
+    {
+        return $this->message(CreateWebhookSubscriptionRequest::class, $parameters);
+    }
+
+    /**
+     * Reads a webhook subscription, with its secret key. A 404 means it no longer exists.
+     *
+     * @param array<string, mixed> $parameters `webhookSubscriptionReference`
+     */
+    public function fetchWebhookSubscription(array $parameters = []): FetchWebhookSubscriptionRequest
+    {
+        return $this->message(FetchWebhookSubscriptionRequest::class, $parameters);
+    }
+
+    /**
+     * Changes a webhook subscription. Only the parameters given are sent.
+     *
+     * @param array<string, mixed> $parameters `webhookSubscriptionReference`, and any of
+     *                                         `url`, `events`, `description` and
+     *                                         `concurrencyLimit`
+     */
+    public function updateWebhookSubscription(array $parameters = []): UpdateWebhookSubscriptionRequest
+    {
+        return $this->message(UpdateWebhookSubscriptionRequest::class, $parameters);
+    }
+
+    /**
+     * Archives a webhook subscription, stopping its deliveries. Edge has no delete, and
+     * the API can't reactivate it.
+     *
+     * @param array<string, mixed> $parameters `webhookSubscriptionReference`
+     */
+    public function archiveWebhookSubscription(array $parameters = []): ArchiveWebhookSubscriptionRequest
+    {
+        return $this->message(ArchiveWebhookSubscriptionRequest::class, $parameters);
     }
 
     /**

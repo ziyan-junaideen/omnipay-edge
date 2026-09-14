@@ -831,6 +831,84 @@ Edge emits `transaction.payment_demands.{created,updated,succeeded,failed}`,
 customers, addresses and payment methods. A succeeded refund arrives as `updated`.
 `transaction.payment_demands.refunded` and `.disputed` are documented but never sent.
 
+### Webhook subscriptions
+
+A webhook subscription tells Edge where to post events and which ones. Its secret key is
+the `webhookSecret` that `acceptNotification()` verifies with.
+
+```php
+use Omnipay\Edge\WebhookEvents;
+
+$mode = 'sandbox';   // the secret key's mode
+$stored = $settings->webhookSubscription($mode);   // ['id' => …, 'secret' => …] or null
+
+if ($stored !== null) {
+    $response = $gateway->fetchWebhookSubscription([
+        'webhookSubscriptionReference' => $stored['id'],
+    ])->send();
+
+    if ($response->isSuccessful() && !$response->isArchived() && $response->getMode() === $mode) {
+        return;   // registered (active, or paused in the dashboard): keep the stored secret
+    }
+
+    if (!$response->isSuccessful() && !$response->isNotFound()) {
+        // 401, 403, 5xx or no answer: report it and stop. Creating another subscription
+        // now could leave two, and every event would arrive twice.
+        throw new RuntimeException('Edge webhook subscription check failed: ' . $response->getMessage());
+    }
+
+    // 404, archived, or another mode's subscription: register a new one
+}
+
+$response = $gateway->createWebhookSubscription([
+    'url' => 'https://shop.example.com/edge/webhook',
+    'description' => 'Shop order events',
+    'events' => WebhookEvents::RECOMMENDED,
+])->send();
+
+if ($response->isSuccessful()) {
+    $settings->saveWebhookSubscription($mode, [
+        'id' => $response->getWebhookSubscriptionReference(),
+        'secret' => $response->getSecretKey(),
+    ]);
+} elseif ($response->isAmbiguous()) {
+    // It may exist: check the dashboard's Developers tab before creating again
+} else {
+    $response->getFieldErrors();   // Edge's 422 messages, keyed by parameter
+}
+```
+
+- **Store the subscription id and secret key for each mode**, and look the subscription up
+  by its id. Don't list subscriptions to find it, or match on the URL: Edge's list endpoint
+  answers 500, and a reinstall that can't find its subscription creates a duplicate.
+- **Handle errors by type.** Only a 404 on the stored id (`isNotFound()`) means the
+  subscription is gone and a new one should be created (as does an archived one, which
+  receives nothing). A 401, 403, 5xx or ambiguous
+  answer says nothing about whether it exists: stop and report it. Creates have no
+  idempotency, so an ambiguous create may have registered one.
+- **The mode must match the keys.** Edge delivers a sandbox key's events only to a
+  `sandbox` subscription, but doesn't check the mode you send. `mode` defaults to the
+  secret key's mode, and a different one is refused before sending.
+- **Events.** `events` must be a non-empty list from `WebhookEvents::RECOMMENDED`, because
+  Edge stores any string and a misspelt code silently receives nothing.
+  `transaction.refund_demands.created` is left out: it can arrive before the `refund()`
+  response does.
+- **Local checks.** `url` must be an absolute https URL, `description` at least 10
+  characters, and `concurrencyLimit` (optional, default 50, not enforced by Edge yet) from
+  1 to 100. A failure throws `Exception\InvalidFieldException` naming the parameter.
+- **Permissions.** The secret key needs the dashboard's webhook subscription permissions
+  (read, create and update). A key without them gets a 403.
+- **Updating.** `updateWebhookSubscription()` sends only the `url`, `events`, `description`
+  or `concurrencyLimit` given; `events` replaces the whole list.
+- **Archiving.** `archiveWebhookSubscription()` stops deliveries. There is no delete, and
+  an archived subscription can't be made active again through the API. Archiving one that
+  already is answers 422 on `status`. Pausing is dashboard-only.
+- **The secret key** comes back on every read and can't be rotated through the API. To
+  replace it, create a new subscription, switch to its secret, then archive the old one.
+- **Local development.** Edge can't deliver to a private URL such as `localhost`. Expose
+  your receiver through a tunnel (such as ngrok or Cloudflare Tunnel) and register the
+  tunnel's https URL.
+
 ### Keys and modes
 
 Edge keys look like `ept_{live|sandbox}_{s|b}…`. The `s` key is the secret key and

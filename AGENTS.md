@@ -22,6 +22,7 @@ src/Keys.php             key format, role, mode, pair and testMode checks
 src/IdempotencyKey.php   fingerprint(): a caller-derived key, HMAC of canonical facts
 src/PaymentState.php     processor_state to Omnipay outcomes and decline messages, no I/O
 src/WebhookSignature.php edge-signature (v3) verification, no I/O
+src/WebhookEvents.php    webhook event codes and RECOMMENDED, the codes subscriptions accept
 src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
 src/CardMapper.php       CreditCard to customer and address attributes, card field names
 src/Exception/           InvalidFieldException (a local check that names the parameter),
@@ -36,7 +37,9 @@ src/Message/             AbstractRequest (URLs, headers, send helpers), Abstract
                          AbstractSubscriptionRequest/Response (subscription parameters,
                          intent vs subscription kind), one request/response class per API
                          call, and AcceptNotificationRequest with its Notification
-                         (verifies a webhook, sends nothing)
+                         (verifies a webhook, sends nothing),
+                         AbstractWebhookSubscriptionRequest (url, mode and events checks)
+                         with WebhookSubscriptionResponse
 tests/                   PHPUnit 10, Omnipay test cases + mock HTTP client
 tests/Message/           MessageTestCase asserts the one request sent, headers and body;
                          QueuedResponsesTrait scripts multi-request flows
@@ -178,6 +181,26 @@ decline reason in the view (`failure_reason` is a column, not an attribute).
 - Subscription `status` is `pending`, `active`, `paused` or `cancelled` (double L).
 - 200–204 is success; 400, 401, 403, 404 and 405 stop retries; anything else is retried
   after 10 s, 5 m, 30 m, 1 h and 2 h.
+
+### Webhook subscriptions
+
+- Routes: `GET` list, `POST`, `GET /{id}`, `PATCH /{id}`; no DELETE. The list endpoint
+  answers 500 (the controller hands the view an unexecuted query), so nothing uses it.
+- Create casts `url`, `mode`, `description`, `events`, `concurrency_limit` and sets
+  `status: active` and a `secret_key` (32 random bytes, unpadded URL-safe base64). Edge
+  checks only that `url` has a scheme and host (http passes), `description` is at least
+  10 characters, `events` is non-empty (any strings), and `concurrency_limit` is 1–100
+  (default 50). It never compares `mode` with the key's mode. No idempotency.
+- `secret_key` is rendered on every read, not only on create. There is no rotation.
+- `PATCH` with `status: "archived"` archives (`archived_at` set) and ignores every other
+  attribute; archiving one not `active` or `paused` is a 422 on `status`. Any other
+  `status` is dropped and the rest cast as on create, `mode` included. Nothing un-archives,
+  and an archived subscription can still be updated.
+- Show returns any status. A missing or another merchant's id is a plain-text 404.
+- Delivery goes to subscriptions with the resource's merchant, the event's mode,
+  `status: active` and the event code in `events`.
+- Keys need the `developer.webhook_subscriptions.*` permissions (403 otherwise); the
+  default secret key permissions and publishable keys don't have them.
 
 ## Testing
 

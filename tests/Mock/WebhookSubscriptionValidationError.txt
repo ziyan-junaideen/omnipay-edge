@@ -1,0 +1,4 @@
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/vnd.api+json
+
+{"errors":[{"status":422,"title":"should be at least 10 character(s)","source":{"pointer":"/data/attributes/description"}},{"status":422,"title":"must be less than or equal to 100","source":{"pointer":"/data/attributes/concurrency_limit"}}],"jsonapi":{"version":"1.1"}}
