@@ -1,0 +1,4 @@
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/vnd.api+json
+
+{"errors":[{"status":422,"title":"is invalid","source":{"pointer":"/data/attributes/billing_period"}},{"status":422,"title":"does not exist","source":{"pointer":"/data/relationships/billing_address"}}],"jsonapi":{"version":"1.1"}}

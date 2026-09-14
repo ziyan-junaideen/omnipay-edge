@@ -151,6 +151,32 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
     }
 
     /**
+     * The consumer address id for billing, as returned by createAddress().
+     */
+    public function getBillingAddressReference(): ?string
+    {
+        return $this->getParameter('billingAddressReference');
+    }
+
+    public function setBillingAddressReference(?string $value): static
+    {
+        return $this->setParameter('billingAddressReference', $value);
+    }
+
+    /**
+     * The consumer address id for shipping. Only sent when it differs from billing.
+     */
+    public function getShippingAddressReference(): ?string
+    {
+        return $this->getParameter('shippingAddressReference');
+    }
+
+    public function setShippingAddressReference(?string $value): static
+    {
+        return $this->setParameter('shippingAddressReference', $value);
+    }
+
+    /**
      * The caller's idempotency key. Store it before sending, and send the same key
      * when retrying after an unclear outcome. See IdempotencyKey::fingerprint() for a
      * derived one.
@@ -235,6 +261,53 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
         }
 
         return $value;
+    }
+
+    /**
+     * An optional boolean parameter. Config often arrives as strings, and (bool) "false"
+     * is true, so boolean strings are parsed.
+     *
+     * @throws InvalidFieldException when the value isn't a boolean or a boolean string
+     */
+    protected function booleanParameter(string $parameter): bool
+    {
+        $value = $this->getParameter($parameter);
+
+        if ($value === null || is_bool($value)) {
+            return (bool) $value;
+        }
+
+        $parsed = is_scalar($value) ? filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
+
+        if ($parsed === null) {
+            throw new InvalidFieldException($parameter, sprintf('The %s parameter must be a boolean.', $parameter));
+        }
+
+        return $parsed;
+    }
+
+    /**
+     * The payer and billing address relationships, plus the shipping address when it
+     * differs from billing. buyer and receiver default to the payer on Edge.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    protected function payerRelationships(string $customer, string $billingAddress): array
+    {
+        $relationships = [
+            'payer' => [CustomerResponse::TYPE, $customer],
+            'billing_address' => [AddressResponse::TYPE, $billingAddress],
+        ];
+
+        // Never send `"data": null`: Edge answers it with a 500. Ids are UUIDs, which
+        // Edge matches case-insensitively.
+        $shippingAddress = trim((string) $this->getShippingAddressReference());
+
+        if ($shippingAddress !== '' && strcasecmp($shippingAddress, $billingAddress) !== 0) {
+            $relationships['shipping_address'] = [AddressResponse::TYPE, $shippingAddress];
+        }
+
+        return $relationships;
     }
 
     /**

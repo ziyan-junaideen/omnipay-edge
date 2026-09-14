@@ -213,12 +213,9 @@ abstract class AbstractResponse extends OmnipayAbstractResponse
      */
     public function getRelationshipId(string $name): ?string
     {
-        $relationships = $this->getResource()['relationships'] ?? null;
-        $relationship = is_array($relationships) ? ($relationships[$name] ?? null) : null;
-        $linkage = is_array($relationship) ? ($relationship['data'] ?? null) : null;
-        $id = is_array($linkage) ? ($linkage['id'] ?? null) : null;
+        $resource = $this->getResource();
 
-        return is_string($id) && $id !== '' ? $id : null;
+        return $resource === null ? null : self::relationshipIdOf($resource, $name);
     }
 
     /**
@@ -261,6 +258,67 @@ abstract class AbstractResponse extends OmnipayAbstractResponse
         $meta = $this->data['meta'] ?? null;
 
         return is_array($meta) ? $meta : [];
+    }
+
+    /**
+     * The id of a to-one relationship of any resource object, such as a collection
+     * entry, or null when it is absent or empty.
+     *
+     * @param array<string, mixed> $resource
+     */
+    public static function relationshipIdOf(array $resource, string $name): ?string
+    {
+        $relationships = $resource['relationships'] ?? null;
+        $relationship = is_array($relationships) ? ($relationships[$name] ?? null) : null;
+        $linkage = is_array($relationship) ? ($relationship['data'] ?? null) : null;
+        $id = is_array($linkage) ? ($linkage['id'] ?? null) : null;
+
+        return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    /**
+     * The facts a created resource disagrees with the posted document on, keyed by
+     * attribute or relationship name. Relationship ids compare case-insensitively: Edge
+     * casts them as UUIDs and returns them in lower case. A relationship that wasn't
+     * sent must come back absent.
+     *
+     * @param array<string, mixed> $sent the posted document
+     * @param list<string> $attributes
+     * @param list<string> $relationships
+     *
+     * @return array<string, array{sent: mixed, edge: mixed}>
+     */
+    protected function compareWithSent(array $sent, array $attributes, array $relationships): array
+    {
+        $data = $sent['data'] ?? null;
+        $sentAttributes = is_array($data) && is_array($data['attributes'] ?? null) ? $data['attributes'] : [];
+        $sentRelationships = is_array($data) && is_array($data['relationships'] ?? null) ? $data['relationships'] : [];
+        $mismatches = [];
+
+        foreach ($attributes as $name) {
+            $expected = $sentAttributes[$name] ?? null;
+            $actual = $this->getAttribute($name);
+
+            if ($expected !== $actual) {
+                $mismatches[$name] = ['sent' => $expected, 'edge' => $actual];
+            }
+        }
+
+        foreach ($relationships as $name) {
+            $linkage = $sentRelationships[$name]['data'] ?? null;
+            $expected = is_array($linkage) ? ($linkage['id'] ?? null) : null;
+            $actual = $this->getRelationshipId($name);
+
+            $same = is_string($expected) && is_string($actual)
+                ? strcasecmp($expected, $actual) === 0
+                : $expected === $actual;
+
+            if (!$same) {
+                $mismatches[$name] = ['sent' => $expected, 'edge' => $actual];
+            }
+        }
+
+        return $mismatches;
     }
 
     /**

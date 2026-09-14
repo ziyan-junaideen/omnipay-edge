@@ -45,8 +45,7 @@ class PurchaseResponse extends AbstractPaymentDemandResponse
     ];
 
     /**
-     * Relationships that must come back as sent, or absent when not sent. Ids compare
-     * case-insensitively: Edge casts them as UUIDs and returns them in lower case.
+     * Relationships that must come back as sent, or absent when not sent.
      */
     private const MATCHED_RELATIONSHIPS = ['payer', 'billing_address', 'shipping_address'];
 
@@ -120,32 +119,6 @@ class PurchaseResponse extends AbstractPaymentDemandResponse
             return [];
         }
 
-        $data = $this->sent['data'] ?? null;
-        $attributes = is_array($data) && is_array($data['attributes'] ?? null) ? $data['attributes'] : [];
-        $relationships = is_array($data) && is_array($data['relationships'] ?? null) ? $data['relationships'] : [];
-        $mismatches = [];
-
-        foreach (self::MATCHED_ATTRIBUTES as $name) {
-            $sent = $attributes[$name] ?? null;
-            $edge = $this->getAttribute($name);
-
-            if ($sent !== $edge) {
-                $mismatches[$name] = ['sent' => $sent, 'edge' => $edge];
-            }
-        }
-
-        foreach (self::MATCHED_RELATIONSHIPS as $name) {
-            $linkage = $relationships[$name]['data'] ?? null;
-            $sent = is_array($linkage) ? ($linkage['id'] ?? null) : null;
-            $edge = $this->getRelationshipId($name);
-
-            $same = is_string($sent) && is_string($edge) ? strcasecmp($sent, $edge) === 0 : $sent === $edge;
-
-            if (!$same) {
-                $mismatches[$name] = ['sent' => $sent, 'edge' => $edge];
-            }
-        }
-
-        return $mismatches;
+        return $this->compareWithSent($this->sent, self::MATCHED_ATTRIBUTES, self::MATCHED_RELATIONSHIPS);
     }
 }

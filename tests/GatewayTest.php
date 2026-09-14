@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace Omnipay\Edge\Tests;
 
 use Omnipay\Edge\Gateway;
+use Omnipay\Edge\Message\CompleteSubscriptionRequest;
+use Omnipay\Edge\Message\CreateSubscriptionRequest;
+use Omnipay\Edge\Message\FetchSubscriptionRequest;
+use Omnipay\Edge\Message\ListSubscriptionChargesRequest;
+use Omnipay\Edge\Message\RetrySubscriptionChargeRequest;
+use Omnipay\Edge\Message\UpdateSubscriptionRequest;
 use Omnipay\Tests\GatewayTestCase;
 
 class GatewayTest extends GatewayTestCase
@@ -52,5 +58,15 @@ class GatewayTest extends GatewayTestCase
     {
         $this->assertSame(300, $this->gateway->getWebhookTolerance());
         $this->assertTrue($this->gateway->supportsAcceptNotification());
+    }
+
+    public function testSubscriptionMethodsCreateTheirRequests(): void
+    {
+        $this->assertInstanceOf(CreateSubscriptionRequest::class, $this->gateway->createSubscription());
+        $this->assertInstanceOf(CompleteSubscriptionRequest::class, $this->gateway->completeSubscription());
+        $this->assertInstanceOf(FetchSubscriptionRequest::class, $this->gateway->fetchSubscription());
+        $this->assertInstanceOf(UpdateSubscriptionRequest::class, $this->gateway->updateSubscription());
+        $this->assertInstanceOf(RetrySubscriptionChargeRequest::class, $this->gateway->retrySubscriptionCharge());
+        $this->assertInstanceOf(ListSubscriptionChargesRequest::class, $this->gateway->listSubscriptionCharges());
     }
 }

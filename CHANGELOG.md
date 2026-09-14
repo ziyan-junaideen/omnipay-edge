@@ -53,3 +53,15 @@ All notable changes to this project are documented here. The format follows
   `InvalidWebhookException`, before the body is decoded. The notification's transaction
   reference is the resource id, and its status maps the snapshot: payment demands through
   `PaymentState`, refunds `succeeded` and subscriptions `active` to completed.
+- Payment subscriptions: `createSubscription()` creates an unconfirmed subscription intent
+  with one line item for the amount and returns `getClientData()` for the payment form;
+  `completeSubscription()` reads the resource first and confirms only a verified intent
+  that matches the amount, currency and key, resolving an unclear confirm by reading again
+  and repeating it once only while the intent is still there, then lists the subscription's
+  charges (such as a prorated first charge); `fetchSubscription()`,
+  `updateSubscription()` (intents only, 405 reported by `isAlreadyConfirmed()`),
+  `listSubscriptionCharges()` and `retrySubscriptionCharge()`, which sends at most one retry
+  and only when an active subscription's latest charge failed and none is in progress.
+  Responses tell an intent from a subscription with `getKind()`; only an active
+  subscription is successful. A payment demand's `getSubscriptionReference()` names its
+  subscription.

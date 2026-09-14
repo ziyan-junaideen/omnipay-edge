@@ -43,7 +43,7 @@ class ListRefundsResponse extends AbstractResponse
 
         /** @var array<string, mixed> $resource */
         foreach ($this->data['data'] as $resource) {
-            $related = self::paymentDemandId($resource);
+            $related = self::relationshipIdOf($resource, 'payment_demand');
 
             // Ids are UUIDs, which Edge matches case-insensitively.
             if ($related !== null && strcasecmp($related, $this->paymentDemandReference) === 0) {
@@ -81,18 +81,5 @@ class ListRefundsResponse extends AbstractResponse
     protected function expectsCollection(): bool
     {
         return true;
-    }
-
-    /**
-     * @param array<string, mixed> $resource
-     */
-    private static function paymentDemandId(array $resource): ?string
-    {
-        $relationships = $resource['relationships'] ?? null;
-        $relationship = is_array($relationships) ? ($relationships['payment_demand'] ?? null) : null;
-        $linkage = is_array($relationship) ? ($relationship['data'] ?? null) : null;
-        $id = is_array($linkage) ? ($linkage['id'] ?? null) : null;
-
-        return is_string($id) && $id !== '' ? $id : null;
     }
 }

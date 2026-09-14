@@ -90,6 +90,15 @@ abstract class AbstractPaymentDemandResponse extends AbstractResponse
     }
 
     /**
+     * The subscription id when the demand is a subscription charge (a renewal or a
+     * prorated first charge), otherwise null.
+     */
+    public function getSubscriptionReference(): ?string
+    {
+        return $this->getRelationshipId('payment_subscription');
+    }
+
+    /**
      * The payment method id, once the hosted payment form has collected a card.
      */
     public function getCardReference(): ?string

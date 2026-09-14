@@ -502,6 +502,204 @@ Edge has no pagination, so `listRefunds()` returns every refund of the payment. 
 silently drops a filter it can't apply, so `getRefunds()` keeps only the refunds whose
 `payment_demand` is the one asked for. Edge has no way to cancel or void a refund.
 
+### Subscriptions
+
+A subscription charges the customer every billing period with the card collected in
+Edge's hosted payment form. It follows the purchase flow: `createSubscription()` creates an
+**unconfirmed intent**, the browser collects and verifies the card, and your server
+confirms it with `completeSubscription()`.
+
+```php
+use Omnipay\Edge\Exception\SubscriptionMismatchException;
+use Omnipay\Edge\Message\AbstractSubscriptionRequest;
+
+$subscriptionKey = IdempotencyKey::fingerprint([
+    'order' => $order->id,
+    'plan' => 'gold_monthly',
+    'amount' => '15.00',
+    'customer' => $customerId,
+    'billingAddress' => $billingAddressId,
+], getenv('EDGE_PUBLISHABLE_KEY'));
+// Store the key with the order before sending.
+
+$response = $gateway->createSubscription([
+    'customerReference' => $customerId,
+    'billingAddressReference' => $billingAddressId,
+    'transactionId' => $order->id,                   // purchase_reference, copied onto every charge
+    'idempotencyKey' => $subscriptionKey,
+    'amount' => '15.00',                             // per billing period
+    'currency' => 'USD',
+    'slug' => 'gold_monthly',
+    'billingPeriod' => 'one_month',
+    'prorationBehavior' => AbstractSubscriptionRequest::PRORATION_CREATE_PRORATIONS, // optional, default none
+    'billingCycleAnchorAt' => '2026-10-01T00:00:00Z', // optional, default: now
+    'description' => 'Gold plan',                     // optional
+])->send();
+
+if ($response->isAwaitingPaymentMethod()) {
+    $subscriptionId = $response->getSubscriptionReference(); // persist it with the order
+    $clientData = $response->getClientData();                // hand this to the browser
+}
+```
+
+In the browser, mount the form exactly as for a purchase, with
+`clientData.subscriptionId` in place of `clientData.demandId`, and wait for
+`payment_method_verified`. Then confirm from your server:
+
+```php
+try {
+    $response = $gateway->completeSubscription([
+        'subscriptionReference' => $subscriptionId,
+        'amount' => '15.00',
+        'currency' => 'USD',
+        'idempotencyKey' => $subscriptionKey,
+    ])->send();
+} catch (SubscriptionMismatchException $e) {
+    // Another amount, currency or key: nothing was confirmed. Set up a new subscription.
+}
+
+if ($response->isSuccessful()) {
+    // active: the first charge has succeeded
+} elseif ($response->isPending()) {
+    // confirmed, first charge not settled yet (or isUnresolved()): wait for the webhooks
+    foreach ($response->getCharges() as $charge) {
+        $charge['id'];   // a payment demand, such as a prorated first charge: track it like a purchase
+    }
+} elseif ($response->isAwaitingPaymentMethod()) {
+    $response->getMessage();   // verify a card in the payment form, then try again
+} else {
+    $response->getMessage();   // nothing was confirmed; see getOutcome()
+}
+```
+
+- `createSubscription()` requires `customerReference`, `billingAddressReference`,
+  `transactionId`, `idempotencyKey`, `amount`, `currency`, `slug` and `billingPeriod`,
+  and throws `Exception\InvalidFieldException` before sending when one is missing or
+  invalid. `transactionId` is required because Edge won't confirm a subscription without
+  a `purchase_reference`.
+- `billingPeriod` is one of `one_day`, `seven_days`, `fourteen_days`, `thirty_days`,
+  `one_month`, `six_months` or `twelve_months`, and `prorationBehavior` is `none` or
+  `create_prorations` (`AbstractSubscriptionRequest::BILLING_PERIODS` and
+  `PRORATION_BEHAVIORS`). `slug` is lowercase letters, digits and underscores.
+  `billingCycleAnchorAt` is a `DateTimeInterface` or an ISO 8601 timestamp with a time
+  zone, sent in UTC.
+- Edge requires at least one line item to confirm a subscription and adds none itself, so
+  one line item for the full amount is sent, named after the description or the slug.
+- Idempotency keys work as for purchases: Edge returns what a key already made without
+  comparing the request, so the gateway compares the amount, currency, `transactionId`,
+  key, slug, billing period, proration behaviour, customer and addresses, and the anchor
+  when one was sent and Edge returned the intent (charges move a subscription's anchor).
+  A difference throws `Exception\IdempotencyConflictException`. A key whose intent was
+  already confirmed returns the subscription: `getKind()` is `subscription` and
+  `isAwaitingPaymentMethod()` is false.
+
+#### How completeSubscription() stays safe
+
+On an active subscription, Edge's confirm endpoint **retries the last failed charge**
+instead of completing a setup. So `completeSubscription()` only ever confirms a resource
+it has just read as an intent:
+
+1. It reads `payment_subscriptions/{id}?include=payment_method` and checks the amount,
+   currency and idempotency key (the key with `hash_equals`). A mismatch throws
+   `Exception\SubscriptionMismatchException` before anything is confirmed.
+2. A subscription (already confirmed) is reported as it is, without a confirm. An intent
+   without a verified card sends nothing (`isAwaitingPaymentMethod()`).
+3. It sends `PATCH payment_subscriptions/{id}/confirm`. A 422 is a hard reject.
+4. An unclear answer (no response, a 405, a 5xx, or a 2xx that isn't this subscription) is
+   resolved by reading again: a subscription means the confirm landed; a resource still
+   showing the intent is confirmed **once** more (Edge creates the subscription with the
+   intent's id, so a second one can't be created); anything else is `isUnresolved()` and
+   `isPending()`.
+5. Once the subscription exists, its charges are listed into `getCharges()`.
+
+Edge's API has no `processor_state` for subscriptions, and an intent's `status` is always
+`pending`. `getKind()` tells them apart: a subscription always has a `next_billing_at`
+date and a `last_processed_at` field, while an intent's `next_billing_at` is `null` and it
+has no `last_processed_at` field.
+
+| `getKind()` | `getStatus()` | `isSuccessful()` | `isPending()` | Meaning |
+| --- | --- | --- | --- | --- |
+| `intent` | `pending` | no | no | Not confirmed. Mount the payment form |
+| `subscription` | `pending` | no | yes | Confirmed; the first charge hasn't succeeded |
+| `subscription` | `active` | yes | no | The first charge succeeded. Renewals are billed |
+| `subscription` | `paused` | no | no | Paused in the Edge dashboard (`isPaused()`) |
+| `subscription` | `cancelled` | no | no | Cancelled in the Edge dashboard (`isCancelled()`) |
+
+#### Charges
+
+Every charge is a payment demand with a `payment_subscription` relationship, and emits
+`transaction.payment_demands.created`, then `.succeeded` or `.failed`.
+`fetchTransaction()`'s `getSubscriptionReference()` names the subscription.
+
+- **The first charge.** With the anchor now or in the past (the default), Edge charges the
+  full amount from a background job shortly after confirming, so it may not be in
+  `getCharges()` yet. With `create_prorations` and a future anchor, Edge creates a
+  prorated charge for the time until the anchor as part of the confirm (when it is at
+  least 10 cents).
+- **The anchor moves.** Every successful charge sets `billing_cycle_anchor_at` to when that
+  charge completed, and the next charge falls one billing period later. So once a prorated
+  charge succeeds on September 14, a monthly subscription anchored on October 1 is next
+  charged around October 14, not October 1, and every later renewal is due one period after
+  the previous charge completed. Read `getNextBillingAt()` rather than computing dates.
+- ⚠️ **With `prorationBehavior: none` and a future anchor, Edge creates no first charge,
+  and today's backend never bills the subscription**: it stays `pending`, because Edge's
+  scheduler only bills `active` subscriptions and a subscription only becomes active when
+  a charge succeeds. Leave the anchor out, or use `create_prorations` (and expect the
+  schedule to move, as above).
+- **A subscription becomes `active` when its first charge succeeds.** Edge sends
+  `transaction.payment_subscriptions.updated` after every successful charge, from a job
+  that can run before the status changes, so re-read with `fetchSubscription()` rather
+  than trusting the snapshot. A **failed first charge leaves it `pending`**, and Edge
+  can't retry it: set up a new subscription with a new key.
+- **Renewals** are created by an hourly job. **A failed renewal leaves the subscription
+  `active`** and sends no `payment_subscriptions.updated`. Watch
+  `transaction.payment_demands.failed` and check each demand's
+  `getSubscriptionReference()`. Edge reruns some declines of a renewal after a day, never
+  of a first charge.
+
+```php
+$charges = $gateway->listSubscriptionCharges(['subscriptionReference' => $subscriptionId])->send();
+$charges->getCharges();         // payment_demands resources, for this subscription only
+$charges->getLatestCharge();    // by created_at
+```
+
+`retrySubscriptionCharge()` retries the latest charge of an **active** subscription when it
+failed, with the card on file (there is no API to change it):
+
+```php
+$retry = $gateway->retrySubscriptionCharge(['subscriptionReference' => $subscriptionId])->send();
+
+$retry->getOutcome();          // RetrySubscriptionChargeResponse::OUTCOME_*
+$retry->getChargeReference();  // the payment demand retried; track it with fetchTransaction()
+$retry->isPending();           // the retry landed and waits for the card network, or isUnresolved()
+```
+
+It reads the subscription and its charges first, and sends nothing (`OUTCOME_NOT_RETRYABLE`)
+unless the subscription is `active`, its latest charge is `failed` and no charge is
+`pending` or `processing`. The retry is sent **at most once**: an unclear answer is resolved
+by listing the charges again, and an unchanged charge leaves the outcome unresolved. Don't
+retry again until it settles.
+
+#### Reading and updating
+
+- `fetchSubscription(['subscriptionReference' => $id])` reads a subscription or its
+  intent. `includePaymentMethod` adds the card.
+- `updateSubscription()` changes an **intent** only: `slug`, `billingPeriod`,
+  `prorationBehavior`, `billingCycleAnchorAt`, `customerReference`,
+  `billingAddressReference` and `shippingAddressReference`, sending only those given. Edge
+  never changes an amount or description, so passing `amount`, `currency` or
+  `description` throws `Exception\InvalidFieldException`. Once confirmed, Edge answers 405:
+  `isAlreadyConfirmed()` is true, with a clear `getMessage()`.
+
+#### Not provided
+
+- **Cancelling and pausing** happen only in the Edge dashboard or the customer's
+  subscription management page, and **neither sends a webhook**. Poll
+  `fetchSubscription()` if you need to know.
+- **Trials and cancel-at-period-end**: Edge stores `trial_end_at` and
+  `canceled_at_period_end` but neither has any billing effect today, so the gateway doesn't
+  send them.
+
 ### Webhooks
 
 Edge posts an event to your webhook subscription's URL whenever a payment demand, refund

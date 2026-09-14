@@ -8,18 +8,24 @@ use Omnipay\Common\AbstractGateway;
 use Omnipay\Edge\Message\AbstractRequest;
 use Omnipay\Edge\Message\AcceptNotificationRequest;
 use Omnipay\Edge\Message\CompletePurchaseRequest;
+use Omnipay\Edge\Message\CompleteSubscriptionRequest;
 use Omnipay\Edge\Message\CreateAddressRequest;
 use Omnipay\Edge\Message\CreateCustomerRequest;
+use Omnipay\Edge\Message\CreateSubscriptionRequest;
 use Omnipay\Edge\Message\FetchAddressRequest;
 use Omnipay\Edge\Message\FetchCardRequest;
 use Omnipay\Edge\Message\FetchCustomerRequest;
 use Omnipay\Edge\Message\FetchRefundRequest;
+use Omnipay\Edge\Message\FetchSubscriptionRequest;
 use Omnipay\Edge\Message\FetchTransactionRequest;
 use Omnipay\Edge\Message\ListRefundsRequest;
+use Omnipay\Edge\Message\ListSubscriptionChargesRequest;
 use Omnipay\Edge\Message\Notification;
 use Omnipay\Edge\Message\PurchaseRequest;
 use Omnipay\Edge\Message\RefundRequest;
+use Omnipay\Edge\Message\RetrySubscriptionChargeRequest;
 use Omnipay\Edge\Message\UpdateCustomerRequest;
+use Omnipay\Edge\Message\UpdateSubscriptionRequest;
 
 /**
  * Edge Payment Technologies gateway.
@@ -278,6 +284,83 @@ class Gateway extends AbstractGateway
     public function listRefunds(array $parameters = []): ListRefundsRequest
     {
         return $this->message(ListRefundsRequest::class, $parameters);
+    }
+
+    /**
+     * Creates an unconfirmed subscription intent for the browser to mount Edge's hosted
+     * payment form against. Nothing is charged until it is completed.
+     *
+     * @param array<string, mixed> $parameters `customerReference`, `billingAddressReference`,
+     *                                         `transactionId`, `idempotencyKey`, `amount`,
+     *                                         `currency`, `slug`, `billingPeriod`, and
+     *                                         optionally `prorationBehavior` (default
+     *                                         `none`), `billingCycleAnchorAt`,
+     *                                         `shippingAddressReference` and `description`
+     */
+    public function createSubscription(array $parameters = []): CreateSubscriptionRequest
+    {
+        return $this->message(CreateSubscriptionRequest::class, $parameters);
+    }
+
+    /**
+     * Confirms a subscription intent once the browser reports `payment_method_verified`.
+     * The resource is read first and only confirmed while it is an intent that matches
+     * the amount, currency and idempotency key and has a verified card, so a confirm never
+     * reaches an active subscription (where it would retry a charge). Safe to call twice.
+     * A confirmed subscription is `pending` until its first charge succeeds.
+     *
+     * @param array<string, mixed> $parameters `subscriptionReference`, `amount`, `currency`
+     *                                         and `idempotencyKey`
+     */
+    public function completeSubscription(array $parameters = []): CompleteSubscriptionRequest
+    {
+        return $this->message(CompleteSubscriptionRequest::class, $parameters);
+    }
+
+    /**
+     * Reads a subscription, or the intent it was created from.
+     *
+     * @param array<string, mixed> $parameters `subscriptionReference`, and optionally
+     *                                         `includePaymentMethod`
+     */
+    public function fetchSubscription(array $parameters = []): FetchSubscriptionRequest
+    {
+        return $this->message(FetchSubscriptionRequest::class, $parameters);
+    }
+
+    /**
+     * Updates a subscription intent. Edge refuses once it is confirmed (a 405).
+     *
+     * @param array<string, mixed> $parameters `subscriptionReference`, and any of `slug`,
+     *                                         `billingPeriod`, `prorationBehavior`,
+     *                                         `billingCycleAnchorAt`, `customerReference`,
+     *                                         `billingAddressReference` and
+     *                                         `shippingAddressReference`
+     */
+    public function updateSubscription(array $parameters = []): UpdateSubscriptionRequest
+    {
+        return $this->message(UpdateSubscriptionRequest::class, $parameters);
+    }
+
+    /**
+     * Retries the failed latest charge of an active subscription with the card on file.
+     * Nothing is sent unless the latest charge failed and none is in progress.
+     *
+     * @param array<string, mixed> $parameters `subscriptionReference`
+     */
+    public function retrySubscriptionCharge(array $parameters = []): RetrySubscriptionChargeRequest
+    {
+        return $this->message(RetrySubscriptionChargeRequest::class, $parameters);
+    }
+
+    /**
+     * Lists the payment demands of one subscription.
+     *
+     * @param array<string, mixed> $parameters `subscriptionReference`
+     */
+    public function listSubscriptionCharges(array $parameters = []): ListSubscriptionChargesRequest
+    {
+        return $this->message(ListSubscriptionChargesRequest::class, $parameters);
     }
 
     /**

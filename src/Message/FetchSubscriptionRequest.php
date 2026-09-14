@@ -7,12 +7,10 @@ namespace Omnipay\Edge\Message;
 use Omnipay\Edge\Exception\InvalidFieldException;
 
 /**
- * GET /payment_demands/{transactionReference}, for polling a demand.
- *
- * Webhooks are the source of truth. Edge returns the confirmed demand once one
- * exists, otherwise the unconfirmed intent; both have the same id.
+ * GET /payment_subscriptions/{subscriptionReference}. Edge returns the subscription
+ * once one exists, otherwise the unconfirmed intent; both have the same id.
  */
-class FetchTransactionRequest extends AbstractRequest
+class FetchSubscriptionRequest extends AbstractSubscriptionRequest
 {
     /**
      * Also return the payment method, through `include=payment_method`.
@@ -31,13 +29,13 @@ class FetchTransactionRequest extends AbstractRequest
 
     protected function getRequestData(): ?array
     {
-        $this->requireString('transactionReference');
+        $this->requireString('subscriptionReference');
         $this->getIncludePaymentMethod();
 
         return null;
     }
 
-    public function send(): FetchTransactionResponse
+    public function send(): FetchSubscriptionResponse
     {
         return $this->sendData($this->getData());
     }
@@ -45,14 +43,10 @@ class FetchTransactionRequest extends AbstractRequest
     /**
      * @param mixed $data
      */
-    public function sendData($data): FetchTransactionResponse
+    public function sendData($data): FetchSubscriptionResponse
     {
-        $id = trim((string) $this->getTransactionReference());
-        $query = $this->getIncludePaymentMethod() ? ['include' => 'payment_method'] : [];
+        $id = $this->requireString('subscriptionReference');
 
-        return $this->response = new FetchTransactionResponse(
-            $this,
-            $this->sendGet(self::path(AbstractPaymentDemandResponse::TYPE, $id), $query)
-        );
+        return $this->response = $this->readSubscription($id, $this->getIncludePaymentMethod());
     }
 }

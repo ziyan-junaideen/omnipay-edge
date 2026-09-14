@@ -46,6 +46,7 @@ class FetchTransactionRequestTest extends MessageTestCase
         $this->assertSame(self::ADDRESS_ID, $response->getBillingAddressReference());
         $this->assertNull($response->getShippingAddressReference());
         $this->assertSame(self::CARD_ID, $response->getCardReference());
+        $this->assertNull($response->getSubscriptionReference());
         $this->assertNull($response->getPaymentMethod());
 
         $state = $response->getPaymentState();
