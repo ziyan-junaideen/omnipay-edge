@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Itemisation on `purchase()`: Omnipay `items` become `line_items` (per-unit price
+  before discount), and `taxAmount`, `shippingAmount` and `discountAmount` become
+  `tax_detail`, `shipping_detail` and `discount_cents`. `Item` adds a SKU and a per-unit
+  discount. Amounts round half up to whole cents with integer maths. The breakdown is all
+  or nothing: when any part can't be represented none of it is sent, and
+  `PurchaseRequest::getItemisation()` reports the problems and how far the breakdown is
+  from the amount.
+
 ## [0.1.0] - 2026-09-14
 
 The first release.

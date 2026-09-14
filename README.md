@@ -23,7 +23,7 @@ This is an independent package, not an official Edge Payment Technologies produc
 - [Consumer contract](#consumer-contract): what your application stores
 - Flows: [customers and addresses](#customers-and-addresses), [purchase](#purchase),
   [the browser](#in-the-browser), [complete purchase](#complete-purchase),
-  [payment status](#payment-status), [retrying a failed payment](#retrying-a-failed-payment),
+  [itemisation](#itemisation), [payment status](#payment-status), [retrying a failed payment](#retrying-a-failed-payment),
   [refunds](#refunds), [subscriptions](#subscriptions), [webhooks](#webhooks),
   [webhook subscriptions](#webhook-subscriptions)
 - [Ambiguous outcomes](#ambiguous-outcomes)
@@ -360,6 +360,76 @@ may not be `incomplete`:
 | `failed` | true | Mount the form again: the shopper retries with a card on the same demand |
 | `pending`, `processing` | false | Already confirmed. Wait for the webhook or poll with `fetchTransaction()` |
 | `succeeded` | false | Already paid. Don't charge again |
+
+#### Itemisation
+
+A purchase can carry an itemised breakdown for the payer's receipt and the merchant's
+dashboard: Omnipay `items`, plus `taxAmount`, `shippingAmount` and `discountAmount`.
+It is **informational**. Edge charges `amount` and never checks the breakdown against it.
+
+```php
+use Omnipay\Edge\Item;
+
+$request = $gateway->purchase([
+    // ...the purchase parameters above, with 'amount' => '42.10'
+    'items' => [
+        new Item([
+            'name' => 'T-shirt',
+            'description' => 'Blue, large', // optional
+            'sku' => 'TS-BLU-L',            // optional
+            'quantity' => 2,
+            'price' => '20.00',             // one unit, before discount
+            'discount' => '2.50',           // off one unit, optional
+        ]),
+        ['name' => 'Sticker', 'quantity' => 1, 'price' => '0.00'], // a plain Omnipay item
+    ],
+    'shippingAmount' => '5.00', // before tax
+    'taxAmount' => '3.10',      // all the tax, including on shipping
+    'discountAmount' => '1.00', // off the whole purchase, not already on an item
+]);
+$response = $request->send();
+
+$itemisation = $request->getItemisation();
+
+if ($itemisation->getProblems() !== []) {
+    $logger->warning('Edge itemisation not sent', $itemisation->getProblems());
+} elseif ($itemisation->isSent() && $itemisation->getDifferenceCents() !== 0) {
+    $logger->notice('Edge itemisation differs from the amount', [
+        'differenceCents' => $itemisation->getDifferenceCents(),
+    ]);
+}
+```
+
+- **One unit, before discount.** An item's `price` is sent as the line's `amount_cents`
+  and `discount` as its `discount_cents`, both per unit. Edge shows a line as price ×
+  quantity. `Omnipay\Edge\Item` adds `sku` and `discount`; an item given as an array
+  is a plain Omnipay item, which drops them.
+- **Tax only in `tax_detail`.** Items never carry tax. `taxAmount` becomes `tax_detail`,
+  `shippingAmount` becomes `shipping_detail`, and both are sent whenever given, even as
+  zero. `discountAmount` becomes `discount_cents`, sent only when
+  more than zero.
+- **Rounding.** Amounts are decimals (such as `"12.50"`), rounded half up to whole cents
+  with integer maths, so `"1.005"` is 101 cents. An integer is whole dollars. A float is
+  read as PHP prints it, as Omnipay reads an amount; prefer strings.
+- **All or nothing.** When any item or amount can't be represented, **no part of the
+  breakdown is sent** and `getProblems()` lists why; the purchase goes ahead without
+  it, and Edge shows one "Payment" line. A partial basket would look complete to the
+  payer. An item can't be represented without a name or description, with a quantity
+  that isn't a whole number from 1 to 1,000,000 (so a fractional quantity, such as
+  0.25 kg, drops the breakdown), without a price, with a price or discount that is
+  negative or not a decimal, or with a discount above the price. A blank `taxAmount`,
+  `shippingAmount` or `discountAmount` counts as not given. The tax, shipping and discount
+  describe the items, so they aren't sent without items either.
+- **Totals.** The breakdown adds up to each item's `(price − discount) × quantity`, plus
+  shipping and tax, less `discountAmount`. Rounding per unit, or a total calculated
+  differently, can leave it a few cents off `amount`. The gateway still sends it and
+  reports the gap in `getDifferenceCents()` (positive when the breakdown is more than
+  the amount): log it rather than refusing the purchase.
+- A 422 on the breakdown is reported by `getFieldErrors()` against `items`,
+  `taxAmount`, `shippingAmount` or `discountAmount`.
+- The returned demand isn't compared with the breakdown for idempotency, so a key must
+  change when the items change: include the cart contents in the
+  [fingerprint](#idempotency-keys).
 
 #### In the browser
 
@@ -1155,9 +1225,8 @@ left with `isUnresolved()`.
 - **No cancelling or pausing subscriptions through the API.** Both are dashboard-only and
   send no webhook. Trials and cancel-at-period-end aren't supported either.
 - **USD only**, with a minimum charge of 10 cents.
-- **No itemisation on payment demands.** Line items, tax, shipping and discounts aren't
-  sent; Edge charges the amount alone. (A subscription gets one line item for its amount,
-  because Edge requires one.)
+- **No itemisation on subscriptions.** Only [purchases](#itemisation) carry a breakdown.
+  A subscription gets one line item for its amount.
 - **No card creation or address updates.** Cards (payment methods) are only created in
   the payment form. A used address can't be changed on Edge: create a new one.
 - **No cancelling or voiding a refund**, which Edge doesn't offer.

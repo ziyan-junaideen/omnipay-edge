@@ -9,6 +9,7 @@ use GuzzleHttp\Psr7\Request as PsrRequest;
 use Http\Client\Exception\NetworkException as HttplugNetworkException;
 use Omnipay\Common\Exception\InvalidRequestException;
 use Omnipay\Edge\Exception\IdempotencyConflictException;
+use Omnipay\Edge\Item;
 use Omnipay\Edge\Message\PurchaseRequest;
 use Omnipay\Edge\Message\PurchaseResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -118,6 +119,82 @@ class PurchaseRequestTest extends MessageTestCase
         $this->gateway->purchase(['shippingAddressReference' => $shipping] + $this->parameters())->send();
 
         $this->assertSentOnce('POST', self::URL, $this->body());
+    }
+
+    public function testSendsTheItemisedBreakdown(): void
+    {
+        $this->setMockHttpResponse('PurchaseSuccess.txt');
+
+        $request = $this->gateway->purchase([
+            'items' => [
+                new Item(
+                    ['name' => 'T-shirt', 'sku' => 'TS-1', 'quantity' => 2, 'price' => '10.00', 'discount' => '1.00']
+                ),
+                ['name' => 'Socks', 'description' => 'Wool', 'quantity' => 3, 'price' => '1.335'],
+            ],
+            'shippingAmount' => '4.00',
+            'taxAmount' => '1.99',
+            'discountAmount' => '0.50',
+        ] + $this->parameters());
+        $response = $request->send();
+
+        $this->assertSentOnce('POST', self::URL, str_replace(
+            '"description":"Order 1001"}',
+            '"description":"Order 1001","line_items":[{"name":"T-shirt","description":"T-shirt","sku":"TS-1",'
+            . '"amount_cents":1000,"amount_currency":"USD","quantity":2,"discount_cents":100,'
+            . '"discount_currency":"USD"},{"name":"Socks","description":"Wool","amount_cents":134,'
+            . '"amount_currency":"USD","quantity":3}],"tax_detail":{"tax_cents":199,"tax_currency":"USD"},'
+            . '"shipping_detail":{"shipping_cents":400,"shipping_currency":"USD"},"discount_cents":50}',
+            $this->body()
+        ));
+        $this->assertTrue($response->isAwaitingPaymentMethod());
+        // 18.00 + 4.02 + 4.00 + 1.99 - 0.50 is 27.51 against a 25.00 demand.
+        $this->assertSame(2751, $request->getItemisation()->getItemisedCents());
+        $this->assertSame(251, $request->getItemisation()->getDifferenceCents());
+    }
+
+    public function testALineThatCannotBeRepresentedSendsNoBreakdown(): void
+    {
+        $this->setMockHttpResponse('PurchaseSuccess.txt');
+
+        $request = $this->gateway->purchase([
+            'items' => [
+                ['name' => 'T-shirt', 'quantity' => 1, 'price' => '20.00'],
+                ['name' => 'Cheese', 'quantity' => 0.25, 'price' => '20.00'],
+            ],
+            'taxAmount' => '1.00',
+        ] + $this->parameters());
+        $request->send();
+
+        $this->assertSentOnce('POST', self::URL, $this->body());
+        $this->assertSame(
+            ['items[1].quantity must be a whole number from 1 to 1000000.'],
+            $request->getItemisation()->getProblems()
+        );
+    }
+
+    public function testAnEmptyCartSendsNoBreakdown(): void
+    {
+        $this->setMockHttpResponse('PurchaseSuccess.txt');
+
+        $request = $this->gateway->purchase(['items' => []] + $this->parameters());
+        $request->send();
+
+        $this->assertSentOnce('POST', self::URL, $this->body());
+        $this->assertFalse($request->getItemisation()->isSent());
+        $this->assertSame([], $request->getItemisation()->getProblems());
+    }
+
+    public function testMapsA422OnTheBreakdownToTheParameters(): void
+    {
+        $this->setMockHttpResponse('PurchaseItemisationValidationError.txt');
+
+        $response = $this->gateway->purchase([
+            'items' => [['name' => 'T-shirt', 'quantity' => 1, 'price' => '25.00']],
+            'taxAmount' => '0',
+        ] + $this->parameters())->send();
+
+        $this->assertSame(['items' => ['is invalid'], 'taxAmount' => ['is invalid']], $response->getFieldErrors());
     }
 
     public function testLeavesOutABlankDescription(): void

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Omnipay\Edge\Message;
 
 use Omnipay\Common\Exception\InvalidRequestException;
+use Omnipay\Common\ItemBag;
 use Omnipay\Edge\Exception\IdempotencyConflictException;
 use Omnipay\Edge\Exception\InvalidFieldException;
+use Omnipay\Edge\Itemisation;
 
 /**
  * POST /payment_demands with `confirmed: false`: an unconfirmed payment demand for
@@ -18,6 +20,9 @@ use Omnipay\Edge\Exception\InvalidFieldException;
  * The caller supplies and stores the idempotency key. Edge returns the demand a key
  * was first used for without comparing the request, so the response is checked
  * against what was sent and a mismatch throws IdempotencyConflictException.
+ *
+ * `items`, `taxAmount`, `shippingAmount` and `discountAmount` add an itemised
+ * breakdown for the payer's receipt. It is informational: see Itemisation.
  */
 class PurchaseRequest extends AbstractRequest
 {
@@ -35,11 +40,88 @@ class PurchaseRequest extends AbstractRequest
         'payer' => 'customerReference',
         'billing_address' => 'billingAddressReference',
         'shipping_address' => 'shippingAddressReference',
+        'line_items' => 'items',
+        'tax_detail' => 'taxAmount',
+        'shipping_detail' => 'shippingAmount',
+        'discount_cents' => 'discountAmount',
     ];
 
     public function getFieldForAttribute(string $attribute): string
     {
         return self::FIELDS[$attribute] ?? $attribute;
+    }
+
+    /**
+     * All the tax on the purchase, as a decimal amount such as "2.10". Sent as
+     * `tax_detail` with the items.
+     *
+     * @return int|float|string|null
+     */
+    public function getTaxAmount()
+    {
+        return $this->getParameter('taxAmount');
+    }
+
+    public function setTaxAmount(int|float|string|null $value): static
+    {
+        return $this->setParameter('taxAmount', $value);
+    }
+
+    /**
+     * The shipping charge before tax, as a decimal amount. Sent as `shipping_detail`
+     * with the items.
+     *
+     * @return int|float|string|null
+     */
+    public function getShippingAmount()
+    {
+        return $this->getParameter('shippingAmount');
+    }
+
+    public function setShippingAmount(int|float|string|null $value): static
+    {
+        return $this->setParameter('shippingAmount', $value);
+    }
+
+    /**
+     * A discount on the whole purchase that isn't already on an item, as a decimal
+     * amount. Sent as `discount_cents` with the items when more than zero.
+     *
+     * @return int|float|string|null
+     */
+    public function getDiscountAmount()
+    {
+        return $this->getParameter('discountAmount');
+    }
+
+    public function setDiscountAmount(int|float|string|null $value): static
+    {
+        return $this->setParameter('discountAmount', $value);
+    }
+
+    /**
+     * The itemised breakdown this request sends: check isSent(), getProblems() for why
+     * a breakdown given wasn't sent, and getDifferenceCents() for how far it is from the
+     * amount. Neither stops the purchase; log them.
+     *
+     * @throws InvalidRequestException when the amount or currency is invalid
+     */
+    public function getItemisation(): Itemisation
+    {
+        $this->validate('amount', 'currency');
+
+        // Omnipay's setItems() only wraps a non-empty array in an ItemBag, so an empty
+        // cart arrives as [].
+        $items = $this->getItems();
+
+        return Itemisation::build(
+            $items instanceof ItemBag ? $items : null,
+            $this->getTaxAmount(),
+            $this->getShippingAmount(),
+            $this->getDiscountAmount(),
+            (int) $this->getAmountInteger(),
+            (string) $this->getCurrency()
+        );
     }
 
     /**
@@ -75,6 +157,8 @@ class PurchaseRequest extends AbstractRequest
         if ($description !== '') {
             $attributes['description'] = $description;
         }
+
+        $attributes += $this->getItemisation()->getAttributes();
 
         // payer_timezone is set by the hosted payment form from the shopper's browser.
         $relationships = $this->payerRelationships($customer, $billingAddress);

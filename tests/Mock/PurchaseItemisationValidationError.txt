@@ -1,0 +1,4 @@
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/vnd.api+json
+
+{"errors":[{"status":422,"title":"is invalid","source":{"pointer":"/data/attributes/line_items"}},{"status":422,"title":"is invalid","source":{"pointer":"/data/attributes/tax_detail"}}],"jsonapi":{"version":"1.1"}}

@@ -23,6 +23,9 @@ src/IdempotencyKey.php   fingerprint(): a caller-derived key, HMAC of canonical 
 src/PaymentState.php     processor_state to Omnipay outcomes and decline messages, no I/O
 src/WebhookSignature.php edge-signature (v3) verification, no I/O
 src/WebhookEvents.php    webhook event codes and RECOMMENDED, the codes subscriptions accept
+src/Itemisation.php      items, tax, shipping and discount to line_items and the details:
+                         half-up integer cents, all or nothing, no I/O
+src/Item.php             Omnipay Item with a SKU and a per-unit discount
 src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
 src/CardMapper.php       CreditCard to customer and address attributes, card field names
 src/Exception/           InvalidFieldException (a local check that names the parameter),
@@ -135,6 +138,32 @@ schemas but never set. `GET payment_demands/{id}` looks in demands before intent
 a confirmed intent's demand shares its id, so the GET never returns `confirmed`.
 `cvc2_check` defaults to `unprocessed` and the AVS fields to `unverified`; there is no
 decline reason in the view (`failure_reason` is a column, not an attribute).
+
+### Itemisation
+
+- `line_items` (`Core.Transactions.LineItem`, embedded, jsonb) casts `name`, `sku`,
+  `unit_of_measure`, `description`, `commodity_code`, `quantity` and money for `amount`,
+  `discount` and `tax` (`*_cents` with a `USD`-only `*_currency`). No number or length
+  checks: negative amounts and `quantity: 0` are stored. A non-integer `*_cents` raises
+  (500), not a 422.
+- `amount_cents` is one unit: `Core.Transactions.line_item_amount/1` is
+  `amount_cents * quantity`, ignoring discount and tax. The only internal writer of a
+  line `discount_cents` (`Core.Invoiced`) sets it per unit.
+- An intent confirmed with `line_items: []` gets one `"Payment"` line for the amount
+  (`Transactions.with_default_line_items/1`); sending any lines replaces it. Nothing
+  compares lines, tax, shipping or discount with `amount_cents`.
+- `tax_detail` requires `tax_cents`; `shipping_detail` doesn't require
+  `shipping_cents`. Both default their currency to USD. `discount_cents` (demand level)
+  must be `>= 0` only when the demand is validated, so a negative one on an intent fails
+  at confirm.
+- `TaxDetail` and `ShippingDetail` must derive `Jason.Encoder` to render: without it a
+  demand holding either one is a 500 on create and on every read.
+- NMI receives no itemisation. The Apple/Google Pay sheet (`RemoteClient.Evervault`)
+  lists `amount_cents * quantity` per line plus Tax and Shipping rows, ignoring
+  discounts and skipping any row of zero or less, and falls back to one Payment row
+  only when that list is empty.
+- The invoice PDF shows each line's `description` (not `name`); the dashboard shows
+  `name`, then `description`.
 
 ### Payment subscriptions
 
