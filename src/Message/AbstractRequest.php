@@ -88,6 +88,39 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
         return $this->setParameter('apiBaseUrl', $value);
     }
 
+    public function getDashboardHost(): ?string
+    {
+        return $this->getParameter('dashboardHost');
+    }
+
+    public function setDashboardHost(?string $value): static
+    {
+        return $this->setParameter('dashboardHost', $value);
+    }
+
+    public function getBrowserSdkUrl(): ?string
+    {
+        return $this->getParameter('browserSdkUrl');
+    }
+
+    public function setBrowserSdkUrl(?string $value): static
+    {
+        return $this->setParameter('browserSdkUrl', $value);
+    }
+
+    /**
+     * Accepted so every gateway parameter reaches the request. Never sent to Edge.
+     */
+    public function getWebhookSecret(): ?string
+    {
+        return $this->getParameter('webhookSecret');
+    }
+
+    public function setWebhookSecret(?string $value): static
+    {
+        return $this->setParameter('webhookSecret', $value);
+    }
+
     /**
      * The Edge customer id, as returned by createCustomer().
      */

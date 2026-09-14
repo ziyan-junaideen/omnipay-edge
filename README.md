@@ -108,6 +108,130 @@ Cards (Edge payment methods) are only created in Edge's hosted payment form, so 
 is no `createCard()`. `fetchCard()` exposes `getExternalState()`, `isConfirmed()`,
 `getLastFour()`, `getCardBin()` and `getKind()`. Edge does not return the expiry date.
 
+### Purchase
+
+`purchase()` creates an **unconfirmed** payment demand. Nothing is charged: the browser
+mounts Edge's hosted payment form against the demand, the shopper's card is verified
+there (including 3DS), and your server then confirms it (`completePurchase()`, coming in
+[#7](https://github.com/ziyan-junaideen/omnipay-edge/issues/7)). There are no redirects
+and no return URLs.
+
+```php
+use Omnipay\Edge\IdempotencyKey;
+
+$idempotencyKey = IdempotencyKey::fingerprint([
+    'order' => $order->id,
+    'amount' => '25.00',
+    'currency' => 'USD',
+    'customer' => $customerId,
+    'billingAddress' => $billingAddressId,
+    'shippingAddress' => $shippingAddressId,
+    'cart' => $order->contentsHash(),
+], getenv('EDGE_PUBLISHABLE_KEY'));
+// Store the key with the order before sending.
+
+$response = $gateway->purchase([
+    'customerReference' => $customerId,
+    'billingAddressReference' => $billingAddressId,
+    'shippingAddressReference' => $shippingAddressId, // optional, left out when it equals billing
+    'transactionId' => $order->id,                    // Edge's purchase_reference
+    'idempotencyKey' => $idempotencyKey,
+    'amount' => '25.00',
+    'currency' => 'USD',
+    'description' => 'Order 1001',                    // optional
+])->send();
+
+if ($response->isAwaitingPaymentMethod()) {
+    $demandId = $response->getTransactionReference(); // persist it with the order
+    $clientData = $response->getClientData();         // hand this to the browser
+}
+```
+
+- `isSuccessful()`, `isPending()` and `isRedirect()` are always **false**: nothing has
+  been charged yet. `isAwaitingPaymentMethod()` is the go-ahead to show the form.
+- `getClientData()` returns `demandId`, `publishableKey`, `dashboardHost`,
+  `browserSdkUrl` and `mode`. It never contains the secret key. `publishableKey` is
+  required, and `dashboardHost` and `browserSdkUrl` must be https URLs; both are
+  checked before the demand is created.
+- `capture_method` is always `automatic` and `purchase_kind` is always `order`: Edge has
+  no capture endpoint.
+- A missing `customerReference`, `billingAddressReference`, `transactionId` or
+  `idempotencyKey` throws `Exception\InvalidFieldException` before anything is sent.
+  A 422 or an unknown address id is reported through `getFieldErrors()` against the same
+  parameter names.
+- If `isAmbiguous()` is true, send the same request again with the **same key**. Edge
+  returns the demand the key already made instead of creating another.
+
+#### Idempotency keys
+
+Edge looks a key up by its value alone and returns the demand it was first used for,
+**without comparing the request**. A key reused with a different amount would hand back
+the old demand at the old amount. So:
+
+- Supply the key yourself and **store it before sending**.
+- Change the key whenever anything the shopper pays for changes. `IdempotencyKey::fingerprint()`
+  derives one from the facts you pass (an HMAC of their canonical JSON, keyed by the
+  publishable key). Pass amounts as strings or integer cents, never floats, and leave
+  out anything that varies between retries of the same payment, such as a timestamp.
+- Don't reuse a key once its demand is paid, even for an identical cart. Include the
+  order id so a second purchase gets a new key.
+
+The gateway checks the returned demand against the request. If the amount, currency,
+`transactionId`, key, capture method, purchase kind, customer or an address differs
+(ids compare case-insensitively), `send()` throws
+`Exception\IdempotencyConflictException`; `getMismatches()` lists what differs and
+`getResponse()` holds the existing demand.
+
+A replayed key returns the demand in its **current** state, so `getProcessorState()`
+may not be `incomplete`:
+
+| `getProcessorState()` | `isAwaitingPaymentMethod()` | What to do |
+| --- | --- | --- |
+| `incomplete` | true | Mount the payment form |
+| `failed` | true | Mount the form again: the shopper retries with a card on the same demand |
+| `pending`, `processing` | false | Already confirmed. Wait for the webhook or poll |
+| `succeeded` | false | Already paid. Don't charge again |
+
+#### In the browser
+
+Load the SDK from `browserSdkUrl` and mount the form against the demand. This follows
+Edge's `assets/js/edge.js`:
+
+```html
+<script src="https://assets.tryedge.io/assets/js/edge.js"></script>
+<div id="edge-payment-form"></div>
+<script>
+  // One shared client per page: Edge has no destroy(), and each instance adds window message listeners.
+  const edge = new Edge(clientData.publishableKey, {
+    formFactor: 'inputs',            // required: 'inputs' or 'embedded'
+    host: clientData.dashboardHost,  // needed for local dev
+  });
+  edge.mountPaymentForm('edge-payment-form', clientData.demandId); // container *id*, not an element
+
+  async function onSubmit() {
+    // EventManager.on() returns an unsubscribe function (assets/js/lib/event_manager.js)
+    let off = [];
+    try {
+      await new Promise((resolve, reject) => {
+        off = [
+          edge.on('payment_method_verified', resolve),
+          edge.on('payment_method_failed', reject),
+          edge.on('payment_method_error', reject),
+        ];
+        edge.verifyPaymentMethod(); // don't rely on its promise: it also resolves on payment_method_changed
+      });                           // add your own timeout
+    } finally {
+      off.forEach((unsubscribe) => unsubscribe());
+    }
+    // POST to your server, which confirms the demand (completePurchase(), coming in #7)
+  }
+</script>
+```
+
+`payment_method_changed` fires whenever the card fields change, including after a
+successful verification. An edited card invalidates the earlier result, so check
+verification again before you submit.
+
 ### Keys and modes
 
 Edge keys look like `ept_{live|sandbox}_{s|b}…`. The `s` key is the secret key and

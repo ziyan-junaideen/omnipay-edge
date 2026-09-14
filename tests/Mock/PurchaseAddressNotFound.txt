@@ -1,0 +1,4 @@
+HTTP/1.1 404 Not Found
+Content-Type: application/vnd.api+json
+
+{"errors":[{"status":404,"title":"Relationship not found","detail":"Could not find the related resource or you don't have permissions to read or modify that data","source":{"pointer":"/data/relationships/billing_address"}}],"jsonapi":{"version":"1.1"}}

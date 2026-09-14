@@ -20,3 +20,8 @@ All notable changes to this project are documented here. The format follows
   `fetchCard()`. `CardMapper` builds the documents from a `CreditCard`, required address
   fields fail locally with `InvalidFieldException`, and responses map 422
   `source.pointer`s to field names with `getFieldErrors()`.
+- `purchase()`: an unconfirmed payment demand with `capture_method: automatic`,
+  `PurchaseResponse::isAwaitingPaymentMethod()` and `getClientData()` for the browser.
+  A replayed idempotency key whose demand differs from the request throws
+  `IdempotencyConflictException`. `IdempotencyKey::fingerprint()` derives a key from
+  the purchase facts.

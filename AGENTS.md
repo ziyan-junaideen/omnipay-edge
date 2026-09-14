@@ -19,9 +19,11 @@ carries the full API context; read it before starting a sub-issue.
 ```
 src/Gateway.php          AbstractGateway: key and host parameters, one method per message
 src/Keys.php             key format, role, mode, pair and testMode checks
+src/IdempotencyKey.php   fingerprint(): a caller-derived key, HMAC of canonical facts
 src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
 src/CardMapper.php       CreditCard to customer and address attributes, card field names
-src/Exception/           InvalidFieldException: a local check that names the parameter
+src/Exception/           InvalidFieldException (a local check that names the parameter),
+                         IdempotencyConflictException (a replayed key with other facts)
 src/Message/             AbstractRequest (URLs, headers, send helpers), AbstractResponse
                          (JSON:API parsing, errors, ambiguity), HttpResult, and one
                          request/response class per API call
@@ -98,8 +100,11 @@ integration hard-coded one and broke.
 - Never send `"data": null` for a relationship, or a relationship the controller
   doesn't resolve (such as `merchant`): both are a 500. Leave the relationship out.
 - Pagination is not implemented; `filter`, `include`, `sort` and `fields` work.
-- `idempotency_key` is a body attribute. It matches on the value alone, across every
-  merchant, so a reused key with a different amount silently returns the old resource.
+- `idempotency_key` is a body attribute. Create looks the key up within the merchant and
+  returns what it finds (201) without comparing the body, so a reused key with a
+  different amount silently returns the old demand, in whatever state it has reached.
+  The unique index on `payment_demands.idempotency_key` spans every merchant, so a key
+  another merchant used fails at confirm instead.
 - Integer cents, USD only, minimum 10 cents. Countries are ISO 3166-1 alpha-3.
 
 ### Payment states

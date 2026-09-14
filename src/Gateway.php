@@ -11,6 +11,7 @@ use Omnipay\Edge\Message\CreateCustomerRequest;
 use Omnipay\Edge\Message\FetchAddressRequest;
 use Omnipay\Edge\Message\FetchCardRequest;
 use Omnipay\Edge\Message\FetchCustomerRequest;
+use Omnipay\Edge\Message\PurchaseRequest;
 use Omnipay\Edge\Message\UpdateCustomerRequest;
 
 /**
@@ -177,6 +178,20 @@ class Gateway extends AbstractGateway
     public function fetchCard(array $parameters = []): FetchCardRequest
     {
         return $this->message(FetchCardRequest::class, $parameters);
+    }
+
+    /**
+     * Creates an unconfirmed payment demand for the browser to mount Edge's hosted
+     * payment form against. Nothing is charged until the demand is confirmed.
+     *
+     * @param array<string, mixed> $parameters `customerReference`, `billingAddressReference`,
+     *                                         `transactionId`, `idempotencyKey`, `amount`,
+     *                                         `currency`, and optionally
+     *                                         `shippingAddressReference` and `description`
+     */
+    public function purchase(array $parameters = []): PurchaseRequest
+    {
+        return $this->message(PurchaseRequest::class, $parameters);
     }
 
     /**
