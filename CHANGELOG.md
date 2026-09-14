@@ -65,3 +65,7 @@ All notable changes to this project are documented here. The format follows
   Responses tell an intent from a subscription with `getKind()`; only an active
   subscription is successful. A payment demand's `getSubscriptionReference()` names its
   subscription.
+- Documentation: the README covers installation, configuration (keys, hosts and local-dev
+  TLS), the end-to-end payment flow, why `pending` is not paid, the consumer contract,
+  retrying a failed payment, limitations and the test-card table.
+  `docs/sandbox-checklist.md` is a manual end-to-end run against a sandbox account.

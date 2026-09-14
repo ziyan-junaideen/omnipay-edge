@@ -45,6 +45,7 @@ tests/Message/           MessageTestCase asserts the one request sent, headers a
                          QueuedResponsesTrait scripts multi-request flows
 tests/Mock/              raw HTTP responses for setMockHttpResponse()
 tests/Fixtures/          Probe request/response classes that expose the foundation
+docs/                    sandbox-checklist.md: a manual end-to-end run against a sandbox
 .github/workflows/ci.yml validate, lint, analyse, test on PHP 8.1–8.4
 ```
 

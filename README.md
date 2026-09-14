@@ -4,7 +4,8 @@
 
 [![CI](https://github.com/ziyan-junaideen/omnipay-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/ziyan-junaideen/omnipay-edge/actions/workflows/ci.yml)
 
-> **Work in progress.** The gateway is not usable yet. Progress is tracked in the
+> **Pre-release.** Not yet published to Packagist, and the API may change before
+> v0.1.0. Progress is tracked in the
 > [issues](https://github.com/ziyan-junaideen/omnipay-edge/issues).
 
 [Omnipay](https://github.com/thephpleague/omnipay) is a framework-agnostic,
@@ -14,33 +15,197 @@ subscriptions, refund demands and webhooks.
 
 This is an independent package, not an official Edge Payment Technologies product.
 
+## Contents
+
+- [Requirements](#requirements) and [Installation](#installation)
+- [Configuration](#configuration): [keys and modes](#keys-and-modes),
+  [hosts](#hosts), [local development](#local-development)
+- [How a payment works](#how-a-payment-works), and why
+  [`pending` is not paid](#pending-is-not-paid)
+- [Consumer contract](#consumer-contract): what your application stores
+- Flows: [customers and addresses](#customers-and-addresses), [purchase](#purchase),
+  [the browser](#in-the-browser), [complete purchase](#complete-purchase),
+  [payment status](#payment-status), [retrying a failed payment](#retrying-a-failed-payment),
+  [refunds](#refunds), [subscriptions](#subscriptions), [webhooks](#webhooks),
+  [webhook subscriptions](#webhook-subscriptions)
+- [Ambiguous outcomes](#ambiguous-outcomes)
+- [Limitations and non-goals](#limitations-and-non-goals)
+- [Test cards](#test-cards) and the [sandbox checklist](docs/sandbox-checklist.md)
+
 ## Requirements
 
 - PHP 8.1 or newer
 - A PSR-18 HTTP client, as required by `omnipay/common` (for example
   `php-http/guzzle7-adapter`)
+- An Edge merchant account, with the secret and publishable keys from the dashboard's
+  Developers tab
 
 ## Installation
 
-Not yet published to Packagist. Once released:
+Not yet published to Packagist. Once released, install the gateway together with a
+PSR-18 client:
 
 ```bash
 composer require ziyan-junaideen/omnipay-edge php-http/guzzle7-adapter
 ```
 
-## Usage
+## Configuration
 
 ```php
 use Omnipay\Omnipay;
 
 $gateway = Omnipay::create('Edge');
 $gateway->initialize([
-    'secretKey' => getenv('EDGE_SECRET_KEY'),
-    'publishableKey' => getenv('EDGE_PUBLISHABLE_KEY'),
+    'secretKey' => getenv('EDGE_SECRET_KEY'),               // ept_sandbox_s… or ept_live_s…
+    'publishableKey' => getenv('EDGE_PUBLISHABLE_KEY'),     // ept_sandbox_b… or ept_live_b…
+    'webhookSecret' => getenv('EDGE_WEBHOOK_SECRET'),       // only for acceptNotification()
 ]);
 ```
 
-Payment flows are documented as they land.
+| Parameter | Default | Used for |
+| --- | --- | --- |
+| `secretKey` | | Every API request, as the Bearer token. Required |
+| `publishableKey` | | The browser: `getClientData()` of `purchase()` and `createSubscription()` |
+| `webhookSecret` | | Verifying webhook deliveries (the webhook subscription's secret key) |
+| `webhookTolerance` | `300` | Seconds a webhook signature's timestamp may differ from now |
+| `apiBaseUrl` | `https://api.tryedge.io/v2/` | The API root |
+| `dashboardHost` | `https://dashboard.tryedge.io` | The host Edge's hosted payment form is loaded from |
+| `browserSdkUrl` | `https://assets.tryedge.io/assets/js/edge.js` | The browser SDK script |
+
+### Keys and modes
+
+Edge keys look like `ept_{live|sandbox}_{s|b}…`. The `s` key is the secret key and
+stays on the server; the `b` key is the publishable key for the browser.
+
+- The **key** decides live or sandbox. There is no mode parameter. If you also call
+  `setTestMode()` (Aimeos and other adapters do), it must agree with the key, or the
+  request throws `InvalidRequestException` before anything is sent.
+- A publishable key in `secretKey`, or a pair from different modes, is refused. Edge
+  accepts a publishable key as a Bearer token, with browser permissions, so the mix-up
+  wouldn't fail loudly on its own.
+- Sandbox and live are separate: customers, addresses, demands and webhook
+  subscriptions made with one mode's keys don't exist in the other.
+- Amounts are USD only, with a minimum charge of 10 cents.
+- Country codes may be alpha-2 or alpha-3; Edge receives alpha-3.
+
+### Hosts
+
+The **host** decides production or local development; the key decides the mode.
+
+| | Production (default) | Local development |
+| --- | --- | --- |
+| `apiBaseUrl` | `https://api.tryedge.io/v2/` | `https://api.tryedge.test:4001/v2/` |
+| `dashboardHost` | `https://dashboard.tryedge.io` | `https://dashboard.tryedge.test:4001` |
+| `browserSdkUrl` | `https://assets.tryedge.io/assets/js/edge.js` | `https://dashboard.tryedge.test:4001/assets/js/edge.js` |
+
+- `apiBaseUrl` must be https. A bare host gets `/v2/`. The gateway only sends the secret
+  key to this origin.
+- `dashboardHost` and `browserSdkUrl` must be https URLs without credentials or a
+  fragment (and `dashboardHost` without a query string). Both are checked before a
+  demand or subscription intent is created, so nothing is made that the browser can't
+  mount.
+- **Keep `browserSdkUrl` on the undigested `edge.js` path.** Edge's developer page hands
+  out a content-hashed `edge-<digest>.js?vsn=d` that changes on every deploy, and an
+  integration that pinned one broke.
+
+### Local development
+
+The local Edge stack serves the API, the payment form and an unminified SDK from
+`*.tryedge.test:4001`, with a certificate signed by a local CA. Pass the gateway an HTTP
+client that trusts that CA rather than turning verification off (for an mkcert
+certificate, the CA is `$(mkcert -CAROOT)/rootCA.pem`). This example uses Guzzle 7,
+installed with `php-http/guzzle7-adapter`. On omnipay/common 3.5 or newer,
+`Omnipay\Common\Http\PsrClient` replaces the deprecated `Client`:
+
+```php
+use GuzzleHttp\Client as GuzzleClient;
+use Omnipay\Common\Http\Client as OmnipayHttpClient;
+use Omnipay\Omnipay;
+
+$httpClient = new OmnipayHttpClient(new GuzzleClient([
+    'verify' => '/path/to/tryedge-test-ca.pem',
+]));
+
+$gateway = Omnipay::create('Edge', $httpClient);
+$gateway->initialize([
+    'secretKey' => getenv('EDGE_SECRET_KEY'),
+    'publishableKey' => getenv('EDGE_PUBLISHABLE_KEY'),
+    'apiBaseUrl' => 'https://api.tryedge.test:4001',   // /v2/ is added
+    'dashboardHost' => 'https://dashboard.tryedge.test:4001',
+    'browserSdkUrl' => 'https://dashboard.tryedge.test:4001/assets/js/edge.js',
+]);
+```
+
+The browser must trust the same CA to load the payment form. The local backend's seeded
+merchant has live-format keys (`ept_live_…`), so its mode reads as `live`; a merchant
+that signs up locally gets sandbox keys.
+
+## How a payment works
+
+There are no redirects and no return URLs: the shopper's card is collected and
+verified, including 3DS, inside Edge's hosted payment form.
+
+```mermaid
+sequenceDiagram
+  participant App as Your server
+  participant Edge as Edge API
+  participant Browser
+  App->>Edge: createCustomer(), createAddress() (store the ids)
+  App->>Edge: purchase() creates an unconfirmed demand (store its id and key)
+  App-->>Browser: getClientData()
+  Browser->>Browser: mount the payment form, verifyPaymentMethod()
+  Browser->>App: submit after payment_method_verified
+  App->>Edge: completePurchase() confirms the demand
+  Edge-->>App: pending (accepted, not paid)
+  Edge-->>App: webhook: succeeded or failed (or poll fetchTransaction())
+```
+
+1. [Create the customer and billing address](#customers-and-addresses) once, and store
+   their ids.
+2. [`purchase()`](#purchase) creates an unconfirmed payment demand. Store its id and the
+   idempotency key with the order.
+3. [In the browser](#in-the-browser), mount Edge's payment form against the demand and
+   wait for `payment_method_verified`.
+4. [`completePurchase()`](#complete-purchase) confirms the demand. The order is
+   **pending**, not paid.
+5. A [webhook](#webhooks) (or [`fetchTransaction()`](#payment-status)) reports the demand
+   `succeeded`, and only then is the order paid. If it `failed`, the shopper can
+   [retry on the same demand](#retrying-a-failed-payment).
+
+## `pending` is not paid
+
+A successful confirm leaves the demand **`pending`**: Edge accepted it but **has not yet
+sent it to the card network**. The card network's answer (a wrong CVC, insufficient
+funds, a lost or stolen card) comes later, asynchronously, as **`failed`**, usually within
+seconds; the sandbox waits a random 0 to 25 seconds.
+
+- A successful confirm, `pending` and `processing` are **never** paid. **Only `succeeded`
+  is.** No response from this gateway reports a payment successful before Edge shows the
+  demand `succeeded`.
+- Keep the order pending after `completePurchase()`, tell the shopper the payment is being
+  processed, and settle the order from the webhook or a poll.
+- Edge gives no decline reason. The only signals are the CVC and AVS checks, and the
+  sandbox's Incorrect-CVC card reports `cvc2_check: unprocessed`, not `mismatch`. See
+  [Payment status](#payment-status) for the shopper messages.
+
+## Consumer contract
+
+The gateway is stateless: it never stores anything. Your application persists:
+
+| What | When | Why |
+| --- | --- | --- |
+| Edge customer and address ids | After `createCustomer()` and `createAddress()` | Edge has no idempotency for them, so retrying a create after a lost response makes a duplicate |
+| The idempotency key of each purchase, refund and subscription | **Before** sending | A retry after an unclear answer must send the same key |
+| The demand id (`getTransactionReference()`) | After `purchase()` | Confirming, polling, refunds and webhooks all name the demand |
+| The card of the last attempt (`getAttemptedCardReference()`) | After `completePurchase()`, whenever it isn't null | Passed back as `previousCardReference`, so a declined card is never charged again without the shopper |
+| Refund ids and subscription ids | After `refund()` and `createSubscription()` | Polling and matching webhooks |
+| The webhook subscription id and secret key, per mode | After `createWebhookSubscription()` | Verifying deliveries, and finding the subscription again without a duplicate |
+| Claims on webhook event ids | When a delivery arrives | Edge retries deliveries, so the same event can arrive more than once |
+
+Adapters that expect a redirect flow or a one-step `purchase()` can't run this flow
+unmodified. The stock Aimeos `OmniPay` provider is one.
+
+## Flows
 
 ### Customers and addresses
 
@@ -396,6 +561,59 @@ Webhooks are the source of truth. If you poll as well:
 - Edge never retries the call to the card processor (its authorize jobs run with
   `max_attempts: 1`), so a demand can stay `processing`. Stop polling after a bounded
   time, keep the order pending, and let the webhook settle it.
+
+### Retrying a failed payment
+
+A `failed` demand is retried **on the same demand**, never with a new one: the shopper
+verifies a card again in the payment form, and your server confirms again. A card sent
+with the confirm is ignored by Edge, so the only way to change the card is the form.
+
+```php
+// 1. The webhook or fetchTransaction() reported the demand failed. Show the shopper why.
+$status = $gateway->fetchTransaction(['transactionReference' => $demandId])->send();
+$status->getMessage();
+
+// 2. Send the original purchase again, with the same parameters and the same key. Edge
+//    returns the failed demand, and the response hands the browser what it needs again.
+$response = $gateway->purchase([
+    'customerReference' => $customerId,
+    'billingAddressReference' => $billingAddressId,
+    'shippingAddressReference' => $shippingAddressId, // if the original purchase sent one
+    'transactionId' => $order->id,
+    'idempotencyKey' => $idempotencyKey,
+    'amount' => '25.00',
+    'currency' => 'USD',
+])->send();
+
+if ($response->isAwaitingPaymentMethod()) {        // processor_state is failed
+    $clientData = $response->getClientData();      // mount the form again, as before
+}
+
+// 3. After payment_method_verified, confirm with the card of the last attempt.
+$response = $gateway->completePurchase([
+    'transactionReference' => $demandId,
+    'amount' => '25.00',
+    'currency' => 'USD',
+    'idempotencyKey' => $idempotencyKey,
+    'previousCardReference' => $order->edgeCardId,  // stored from getAttemptedCardReference()
+])->send();
+```
+
+- Resend **every** parameter of the original purchase, the shipping address included. A
+  left-out one differs from the stored demand, and `send()` throws
+  `Exception\IdempotencyConflictException`.
+- The retry is only sent when the demand's card differs from `previousCardReference`.
+  Verifying in the form always creates a new payment method, so a real retry passes. A
+  reload or a late duplicate submit sends nothing: `isAwaitingPaymentMethod()` is true and
+  `getMessage()` asks the shopper to verify a card again.
+- Store `getAttemptedCardReference()` again after every attempt.
+- The retried demand goes `pending` again, and settles as `succeeded` or `failed` like the
+  first attempt.
+- If the order changed (another amount or cart), don't retry: create a new demand with a
+  new key.
+
+Subscription charges are retried differently: see
+[`retrySubscriptionCharge()`](#charges).
 
 ### Refunds
 
@@ -909,49 +1127,79 @@ if ($response->isSuccessful()) {
   your receiver through a tunnel (such as ngrok or Cloudflare Tunnel) and register the
   tunnel's https URL.
 
-### Keys and modes
-
-Edge keys look like `ept_{live|sandbox}_{s|b}…`. The `s` key is the secret key and
-stays on the server; the `b` key is the publishable key for the browser.
-
-- The **key** decides live or sandbox. If you also call `setTestMode()`, it must agree
-  with the key, or the request throws `InvalidRequestException` before anything is sent.
-- A publishable key in `secretKey`, or a pair from different modes, is refused.
-- Amounts are USD only, with a minimum charge of 10 cents.
-- Country codes may be alpha-2 or alpha-3; Edge receives alpha-3.
-
-### Ambiguous outcomes
+## Ambiguous outcomes
 
 Every response exposes `isAmbiguous()`. It is true when the HTTP call failed in
 transit, or when a create or update came back with a 2xx that isn't the expected
 resource. The change may or may not have happened on Edge, so read the resource back
 before retrying or telling the shopper anything.
 
-### Local development
+`completePurchase()`, `refund()`, `completeSubscription()` and `retrySubscriptionCharge()`
+resolve most unclear answers themselves, as their sections describe, and report what's
+left with `isUnresolved()`.
 
-The local Edge stack (`https://api.tryedge.test:4001`) uses a self-signed certificate.
-Pass the gateway an HTTP client that trusts its CA rather than turning verification off.
-This example uses Guzzle 7 (installed with `php-http/guzzle7-adapter`). On omnipay/common
-3.5 or newer, `Omnipay\Common\Http\PsrClient` replaces the deprecated `Client`:
+## Limitations and non-goals
 
-```php
-use GuzzleHttp\Client as GuzzleClient;
-use Omnipay\Common\Http\Client as OmnipayHttpClient;
-use Omnipay\Omnipay;
+- **No authorize, capture or void.** Edge has no capture or void endpoint, so every
+  demand is sent with `capture_method: automatic`, and `supportsAuthorize()`,
+  `supportsCapture()` and `supportsVoid()` are false.
+- **No off-session card-on-file charges.** There is no `purchase()` with a
+  `cardReference`. Edge stores 3DS results on each demand, not on the payment method, so a
+  new demand with a stored card fails wherever 3DS is enforced. Every one-off payment goes
+  through the payment form; recurring charges go through [subscriptions](#subscriptions).
+- **No cancelling or pausing subscriptions through the API.** Both are dashboard-only and
+  send no webhook. Trials and cancel-at-period-end aren't supported either.
+- **USD only**, with a minimum charge of 10 cents.
+- **No itemisation on payment demands.** Line items, tax, shipping and discounts aren't
+  sent; Edge charges the amount alone. (A subscription gets one line item for its amount,
+  because Edge requires one.)
+- **No card creation or address updates.** Cards (payment methods) are only created in
+  the payment form. A used address can't be changed on Edge: create a new one.
+- **No cancelling or voiding a refund**, which Edge doesn't offer.
+- **No pagination.** Edge doesn't implement it, so `listRefunds()` and
+  `listSubscriptionCharges()` return everything.
+- **No listing webhook subscriptions, and no automatic reconciliation.** Edge's list
+  endpoint answers 500; store the id you created.
 
-$httpClient = new OmnipayHttpClient(new GuzzleClient([
-    'verify' => '/path/to/tryedge-test-ca.pem',
-]));
+## Test cards
 
-$gateway = Omnipay::create('Edge', $httpClient);
-$gateway->initialize([
-    'secretKey' => getenv('EDGE_SECRET_KEY'),
-    'apiBaseUrl' => 'https://api.tryedge.test:4001',   // /v2/ is added
-    'dashboardHost' => 'https://dashboard.tryedge.test:4001',
-]);
-```
+From Edge's API description. Enter them in the sandbox's payment form. The 3DS result
+decides whether `verifyPaymentMethod()` succeeds; the network result comes later, after
+the confirm.
 
-The gateway only sends the secret key to `apiBaseUrl`'s origin, over HTTPS.
+| Card | 3DS | Network result |
+| --- | --- | --- |
+| `4005519200000004` | Frictionless success | Visa success |
+| `4444333322221111455` | Frictionless success | Visa (19-digit) success |
+| `5406004444444443` | Frictionless success | Mastercard success |
+| `6011450103333333` | Frictionless success | Discover success |
+| `370000999999990` | Frictionless success | AmEx success (⚠️ unconfirmed in the sandbox, see below) |
+| `4124939999999990` | Frictionless success | Generic decline |
+| `4444333322221111` | Frictionless success | Insufficient funds |
+| `5555341244441115` | Frictionless success | Lost card |
+| `6011601160116611` | Frictionless success | Stolen card |
+| `370000000000002` | Frictionless success | Incorrect CVC |
+| `4917300800000000` | Frictionless success | Always blocked |
+| `5407721000353481` | Frictionless success | Highest risk (AVS `mismatch`) |
+| `370000000100018` | **Frictionless failure** | None: `payment_method_failed` in the browser, before any confirm |
+| `5100060000000002` | Challenge prompt | ⚠️ Broken in the sandbox: the payment method ends up `errored` |
+| `4012000077777777` | Not enrolled | ⚠️ Broken in the sandbox: the payment method ends up `errored` |
+| `4166676667666746` | Issuer rejected | ⚠️ Broken in the sandbox: the payment method ends up `errored` |
+
+- The declines in the middle of the table **happen after the confirm**: the demand goes
+  `pending` first, then `failed`.
+- The Incorrect-CVC card reports `cvc2_check: unprocessed`, not `mismatch`, so its shopper
+  message is the generic decline.
+- The sandbox only simulates 3DS for the frictionless cards, matched on the card's BIN and
+  last four digits. Any other number, the three broken cards included, leaves the payment
+  method `errored` (`payment_method_error` in the browser).
+- The sandbox matches `370000999999990` on an 8-digit BIN, while the other AmEx cards match
+  on 6 digits. If the payment form reports a 6-digit BIN for it, this card is broken too.
+  Prefer `4005519200000004` for a success.
+- Don't use `4242…`: that's Stripe's test card.
+
+The [sandbox checklist](docs/sandbox-checklist.md) walks through these cards end to end
+against a sandbox account.
 
 ## Development
 
