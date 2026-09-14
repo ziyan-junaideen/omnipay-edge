@@ -5,6 +5,13 @@ declare(strict_types=1);
 namespace Omnipay\Edge;
 
 use Omnipay\Common\AbstractGateway;
+use Omnipay\Edge\Message\AbstractRequest;
+use Omnipay\Edge\Message\CreateAddressRequest;
+use Omnipay\Edge\Message\CreateCustomerRequest;
+use Omnipay\Edge\Message\FetchAddressRequest;
+use Omnipay\Edge\Message\FetchCardRequest;
+use Omnipay\Edge\Message\FetchCustomerRequest;
+use Omnipay\Edge\Message\UpdateCustomerRequest;
 
 /**
  * Edge Payment Technologies gateway.
@@ -13,6 +20,9 @@ use Omnipay\Common\AbstractGateway;
  * secret key authenticates server requests; the publishable key, dashboard host
  * and browser SDK URL are handed to the browser, which mounts Edge's hosted
  * payment form against a payment demand.
+ *
+ * The gateway stores nothing. Customers and addresses have no idempotency on Edge,
+ * so they are explicit calls and the caller persists the ids they return.
  *
  * Work in progress: request messages are tracked in the repository's issues.
  */
@@ -111,5 +121,77 @@ class Gateway extends AbstractGateway
     public function setBrowserSdkUrl(?string $value): static
     {
         return $this->setParameter('browserSdkUrl', $value);
+    }
+
+    /**
+     * Creates a customer from `email`, `name`, `phoneNumber` and `description`, or the
+     * card's email, billing name and billing phone.
+     *
+     * @param array<string, mixed> $parameters
+     */
+    public function createCustomer(array $parameters = []): CreateCustomerRequest
+    {
+        return $this->message(CreateCustomerRequest::class, $parameters);
+    }
+
+    /**
+     * @param array<string, mixed> $parameters `customerReference`
+     */
+    public function fetchCustomer(array $parameters = []): FetchCustomerRequest
+    {
+        return $this->message(FetchCustomerRequest::class, $parameters);
+    }
+
+    /**
+     * @param array<string, mixed> $parameters `customerReference`, plus the createCustomer() fields
+     */
+    public function updateCustomer(array $parameters = []): UpdateCustomerRequest
+    {
+        return $this->message(UpdateCustomerRequest::class, $parameters);
+    }
+
+    /**
+     * Creates a consumer address from the card's billing fields, or its shipping
+     * fields with `addressType` set to `shipping`, linked to `customerReference`.
+     *
+     * @param array<string, mixed> $parameters
+     */
+    public function createAddress(array $parameters = []): CreateAddressRequest
+    {
+        return $this->message(CreateAddressRequest::class, $parameters);
+    }
+
+    /**
+     * @param array<string, mixed> $parameters `addressReference`
+     */
+    public function fetchAddress(array $parameters = []): FetchAddressRequest
+    {
+        return $this->message(FetchAddressRequest::class, $parameters);
+    }
+
+    /**
+     * Reads a payment method. Edge only creates them in its hosted payment form.
+     *
+     * @param array<string, mixed> $parameters `cardReference`
+     */
+    public function fetchCard(array $parameters = []): FetchCardRequest
+    {
+        return $this->message(FetchCardRequest::class, $parameters);
+    }
+
+    /**
+     * @template T of AbstractRequest
+     *
+     * @param class-string<T> $class
+     * @param array<string, mixed> $parameters
+     *
+     * @return T
+     */
+    private function message(string $class, array $parameters): AbstractRequest
+    {
+        /** @var T $request */
+        $request = $this->createRequest($class, $parameters);
+
+        return $request;
     }
 }

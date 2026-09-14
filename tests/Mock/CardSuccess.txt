@@ -1,0 +1,4 @@
+HTTP/1.1 200 OK
+Content-Type: application/vnd.api+json
+
+{"data":{"type":"payment_methods","id":"e4a1b2c3-5d6e-4f70-8192-a3b4c5d6e7f8","attributes":{"nickname":null,"card_bin":"400551","last_four":"0004","description":null,"external_state":"confirmed","kind":"visa","discarded_at":null,"created_at":"2026-09-14T10:02:00Z","updated_at":"2026-09-14T10:02:05Z"},"relationships":{"address":{"data":{"type":"consumer_addresses","id":"3c6e2d1a-7b4f-4e8a-b0d2-9f1e6a5c4b31"}},"customer":{"data":{"type":"customers","id":"8b0f5c3e-1f0a-4c9e-9a51-5d2f1b7c2a10"}},"merchant":{"data":{"type":"merchants","id":"0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"}},"payment_demands":{"links":{"related":"https://api.tryedge.io/v2/payment_methods/e4a1b2c3-5d6e-4f70-8192-a3b4c5d6e7f8/relationships/payment_demands"}}},"links":{"self":"https://api.tryedge.io/v2/payment_methods/e4a1b2c3-5d6e-4f70-8192-a3b4c5d6e7f8"}},"jsonapi":{"version":"1.1"}}

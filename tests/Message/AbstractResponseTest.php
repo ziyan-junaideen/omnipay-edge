@@ -90,6 +90,28 @@ class AbstractResponseTest extends TestCase
         $this->assertNull($response->getResourceId());
     }
 
+    public function testKeysErrorsByTheAttributeOrRelationshipTheyPointAt(): void
+    {
+        $response = $this->response('POST', 422, (string) json_encode([
+            'errors' => [
+                ['title' => "can't be blank", 'source' => ['pointer' => '/data/attributes/zip']],
+                ['title' => 'is too long', 'source' => ['pointer' => '/data/attributes/zip']],
+                ['title' => 'is invalid', 'source' => ['pointer' => '/data/relationships/customer/data/id']],
+                ['title' => 'odd', 'source' => ['pointer' => '/data/attributes/a~1b~0c']],
+                ['title' => 'Missing type', 'source' => ['pointer' => '/data/type']],
+                ['title' => 'No source'],
+            ],
+        ]));
+
+        $expected = [
+            'zip' => ["can't be blank", 'is too long'],
+            'customer' => ['is invalid'],
+            'a/b~c' => ['odd'],
+        ];
+        $this->assertSame($expected, $response->getAttributeErrors());
+        $this->assertSame($expected, $response->getFieldErrors());
+    }
+
     /**
      * @return array<string, array{array<string, mixed>, string}>
      */

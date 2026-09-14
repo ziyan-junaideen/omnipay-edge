@@ -15,3 +15,8 @@ All notable changes to this project are documented here. The format follows
   outcomes), `Message\AbstractResponse` (JSON:API and plain-text errors, malformed
   2xx detection), `Keys` validation, USD and 10-cent minimum checks, and `Countries`
   alpha-2 to alpha-3 conversion.
+- Customers and consumer addresses: `createCustomer()`, `fetchCustomer()`,
+  `updateCustomer()`, `createAddress()`, `fetchAddress()` and a read-only
+  `fetchCard()`. `CardMapper` builds the documents from a `CreditCard`, required address
+  fields fail locally with `InvalidFieldException`, and responses map 422
+  `source.pointer`s to field names with `getFieldErrors()`.

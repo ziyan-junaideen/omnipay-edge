@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Omnipay\Edge\Message;
 
 use JsonException;
+use Omnipay\Common\CreditCard;
 use Omnipay\Common\Exception\InvalidRequestException;
 use Omnipay\Common\Http\Exception as OmnipayHttpException;
 use Omnipay\Common\Message\AbstractRequest as OmnipayAbstractRequest;
+use Omnipay\Edge\Exception\InvalidFieldException;
 use Omnipay\Edge\Gateway;
 use Omnipay\Edge\Keys;
 use Psr\Http\Client\ClientExceptionInterface;
@@ -87,6 +89,28 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
     }
 
     /**
+     * The Edge customer id, as returned by createCustomer().
+     */
+    public function getCustomerReference(): ?string
+    {
+        return $this->getParameter('customerReference');
+    }
+
+    public function setCustomerReference(?string $value): static
+    {
+        return $this->setParameter('customerReference', $value);
+    }
+
+    /**
+     * The request parameter an Edge attribute or relationship was built from, so a
+     * 422 can be reported against the caller's input. Defaults to the Edge name.
+     */
+    public function getFieldForAttribute(string $attribute): string
+    {
+        return $attribute;
+    }
+
+    /**
      * Adds Edge's money rules to Omnipay's required-parameter check: whenever the
      * amount or currency is validated, the currency must be USD and the amount at
      * least the minimum, in integer cents.
@@ -118,6 +142,34 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
                 $this->minimumAmountCents
             ));
         }
+    }
+
+    /**
+     * The card, or null when none was given. Omnipay's getCard() is documented as
+     * never returning null, but does.
+     */
+    protected function findCard(): ?CreditCard
+    {
+        $card = $this->getParameter('card');
+
+        return $card instanceof CreditCard ? $card : null;
+    }
+
+    /**
+     * A required string parameter, trimmed.
+     *
+     * @throws InvalidFieldException
+     */
+    protected function requireString(string $parameter): string
+    {
+        $value = $this->getParameter($parameter);
+        $value = is_scalar($value) ? trim((string) $value) : '';
+
+        if ($value === '') {
+            throw new InvalidFieldException($parameter, sprintf('The %s parameter is required', $parameter));
+        }
+
+        return $value;
     }
 
     /**

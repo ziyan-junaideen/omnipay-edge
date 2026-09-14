@@ -1,0 +1,4 @@
+HTTP/1.1 200 OK
+Content-Type: application/vnd.api+json
+
+{"data":{"type":"payment_methods","id":"e4a1b2c3-5d6e-4f70-8192-a3b4c5d6e7f8","attributes":{"card_bin":"400551","last_four":"0004","external_state":"pending","kind":"visa","discarded_at":null},"relationships":{"customer":{"links":{"related":"https://api.tryedge.io/v2/payment_methods/e4a1b2c3-5d6e-4f70-8192-a3b4c5d6e7f8/relationships/customer"}}}},"jsonapi":{"version":"1.1"}}

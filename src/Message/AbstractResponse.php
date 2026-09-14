@@ -119,6 +119,58 @@ abstract class AbstractResponse extends OmnipayAbstractResponse
     }
 
     /**
+     * Error messages keyed by the Edge attribute or relationship each `source.pointer`
+     * names: `/data/attributes/zip` gives `zip`, `/data/relationships/customer` gives
+     * `customer`. Errors that point elsewhere, or nowhere, are left out.
+     *
+     * @return array<string, list<string>>
+     */
+    public function getAttributeErrors(): array
+    {
+        $errors = [];
+
+        foreach ($this->errors as $error) {
+            $source = $error['source'] ?? null;
+            $pointer = is_array($source) ? ($source['pointer'] ?? null) : null;
+
+            $matched = is_string($pointer)
+                && preg_match('~^/data/(?:attributes|relationships)/([^/]+)~', $pointer, $match) === 1;
+
+            if (!$matched) {
+                continue;
+            }
+
+            // JSON Pointer escapes: ~1 is "/", ~0 is "~".
+            $name = strtr($match[1], ['~1' => '/', '~0' => '~']);
+            $errors[$name][] = $this->errorMessage($error, (int) $this->result->status);
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Like getAttributeErrors(), but keyed by the request parameter each value came
+     * from, such as `billingPostcode` for a billing address `zip`. Show each message
+     * next to the matching input.
+     *
+     * @return array<string, list<string>>
+     */
+    public function getFieldErrors(): array
+    {
+        $errors = [];
+
+        foreach ($this->getAttributeErrors() as $attribute => $messages) {
+            $field = $this->request instanceof AbstractRequest
+                ? $this->request->getFieldForAttribute($attribute)
+                : $attribute;
+
+            $errors[$field] = array_merge($errors[$field] ?? [], $messages);
+        }
+
+        return $errors;
+    }
+
+    /**
      * The primary resource of a well-formed single-resource response.
      *
      * @return array<string, mixed>|null
@@ -144,6 +196,16 @@ abstract class AbstractResponse extends OmnipayAbstractResponse
         $attributes = $this->getResource()['attributes'] ?? null;
 
         return is_array($attributes) ? ($attributes[$name] ?? null) : null;
+    }
+
+    /**
+     * A string attribute, or null when it is absent, empty or not a string.
+     */
+    public function stringAttribute(string $name): ?string
+    {
+        $value = $this->getAttribute($name);
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**

@@ -1,0 +1,4 @@
+HTTP/1.1 201 Created
+Content-Type: application/vnd.api+json
+
+{"data":{"type":"customers","id":"8b0f5c3e-1f0a-4c9e-9a51-5d2f1b7c2a10","attributes":{"name":"Ada Lovelace","phone_number":"+18003057664","email":"ada@example.com","description":"Order 1001","blocked_at":null,"created_at":"2026-09-14T10:00:00Z","updated_at":"2026-09-14T10:00:00Z"},"relationships":{"merchant":{"data":{"type":"merchants","id":"0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"},"links":{"related":"https://api.tryedge.io/v2/customers/8b0f5c3e-1f0a-4c9e-9a51-5d2f1b7c2a10/relationships/merchant"}},"addresses":{"links":{"related":"https://api.tryedge.io/v2/customers/8b0f5c3e-1f0a-4c9e-9a51-5d2f1b7c2a10/relationships/addresses"}},"payment_demands":{"links":{"related":"https://api.tryedge.io/v2/customers/8b0f5c3e-1f0a-4c9e-9a51-5d2f1b7c2a10/relationships/payment_demands"}}},"links":{"self":"https://api.tryedge.io/v2/customers/8b0f5c3e-1f0a-4c9e-9a51-5d2f1b7c2a10"}},"jsonapi":{"version":"1.1"}}

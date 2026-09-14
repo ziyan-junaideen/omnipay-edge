@@ -17,12 +17,17 @@ carries the full API context; read it before starting a sub-issue.
 ## Layout
 
 ```
-src/Gateway.php          AbstractGateway: key and host parameters (messages land per issue)
+src/Gateway.php          AbstractGateway: key and host parameters, one method per message
 src/Keys.php             key format, role, mode, pair and testMode checks
 src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
+src/CardMapper.php       CreditCard to customer and address attributes, card field names
+src/Exception/           InvalidFieldException: a local check that names the parameter
 src/Message/             AbstractRequest (URLs, headers, send helpers), AbstractResponse
-                         (JSON:API parsing, errors, ambiguity), HttpResult
+                         (JSON:API parsing, errors, ambiguity), HttpResult, and one
+                         request/response class per API call
 tests/                   PHPUnit 10, Omnipay test cases + mock HTTP client
+tests/Message/           MessageTestCase asserts the one request sent, headers and body
+tests/Mock/              raw HTTP responses for setMockHttpResponse()
 tests/Fixtures/          Probe request/response classes that expose the foundation
 .github/workflows/ci.yml validate, lint, analyse, test on PHP 8.1–8.4
 ```
@@ -85,7 +90,13 @@ integration hard-coded one and broke.
 - `Content-Type` and `Accept` are both `application/vnd.api+json`.
 - No PUT or DELETE routes. `confirm` is `PATCH …/{id}/confirm` with `attributes: {}`
   (a JSON object, not `[]`).
-- 401, 403, 404, 405 and 500 bodies are plain text, not JSON:API error documents.
+- 401, 403, 404, 405 and 500 bodies are plain text, not JSON:API error documents. A
+  relationship id that doesn't exist is the exception: a JSON:API 404 pointing at
+  `/data/relationships/<name>`.
+- 422 changeset errors carry `status` (a number), `title` and `source.pointer`, with no
+  `detail` or `code`.
+- Never send `"data": null` for a relationship, or a relationship the controller
+  doesn't resolve (such as `merchant`): both are a 500. Leave the relationship out.
 - Pagination is not implemented; `filter`, `include`, `sort` and `fields` work.
 - `idempotency_key` is a body attribute. It matches on the value alone, across every
   merchant, so a reused key with a different amount silently returns the old resource.

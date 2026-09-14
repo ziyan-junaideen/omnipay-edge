@@ -42,6 +42,72 @@ $gateway->initialize([
 
 Payment flows are documented as they land.
 
+### Customers and addresses
+
+A payment demand points at an Edge customer (the payer) and a billing address. Edge
+has no idempotency for either, so the gateway never creates them behind the scenes:
+create them explicitly, **store the returned ids**, and reuse them. Retrying a create
+after a lost response makes a duplicate.
+
+```php
+use Omnipay\Common\CreditCard;
+
+$card = new CreditCard([
+    'firstName' => 'Ada',
+    'lastName' => 'Lovelace',
+    'email' => 'ada@example.com',
+    'billingPhone' => '800-305-7664',
+    'billingAddress1' => '12 Analytical Way',
+    'billingCity' => 'Springfield',
+    'billingState' => 'IL',
+    'billingPostcode' => '62701',
+    'billingCountry' => 'US',
+]);
+
+$customer = $gateway->createCustomer(['card' => $card])->send();
+$customerId = $customer->getCustomerReference();   // persist it
+
+$address = $gateway->createAddress([
+    'customerReference' => $customerId,
+    'card' => $card,                                 // billing fields by default
+])->send();
+$billingAddressId = $address->getAddressReference(); // persist it
+```
+
+- `createCustomer()` reads the card's billing name, email and billing phone. `name`,
+  `email`, `phoneNumber` and `description` parameters override them. An email is
+  required. Edge stores a valid phone number in E.164 form.
+- `updateCustomer()` takes a `customerReference` and the same fields. Fields left out
+  keep their stored values. Edge rejects the update if the customer still has no name
+  afterwards, so send one when the customer was created without it.
+- `createAddress()` sends the card's billing fields, or its shipping fields with
+  `'addressType' => 'shipping'`. Only create a shipping address when
+  `CardMapper::hasDistinctShippingAddress($card)` is true: a demand without one uses
+  the billing address. A partly filled-in shipping address counts as distinct, so
+  creating it reports the missing fields.
+- `fetchCustomer()`, `fetchAddress()` and `fetchCard()` read by `customerReference`,
+  `addressReference` and `cardReference`.
+
+Line 1, city, state, postcode and country are required, and the country must be an
+ISO 3166-1 code. A missing or invalid one throws `Exception\InvalidFieldException`
+before anything is sent; its `getField()` names the card field, such as
+`billingState`. Shops often leave the state empty, so collect it at checkout.
+
+When Edge rejects a value (HTTP 422), `getFieldErrors()` returns the messages keyed by
+the same field names, ready to show next to the matching input:
+
+```php
+if (!$address->isSuccessful()) {
+    $address->getFieldErrors();   // ['billingState' => ['is not a applicable state']]
+}
+```
+
+`getAttributeErrors()` returns them keyed by Edge's attribute names instead.
+
+Cards (Edge payment methods) are only created in Edge's hosted payment form, so there
+is no `createCard()`. `fetchCard()` exposes `getExternalState()`, `isConfirmed()`,
+`getLastFour()`, `getCardBin()` and `getKind()`. Edge does not return the expiry date.
+
 ### Keys and modes
 
 Edge keys look like `ept_{live|sandbox}_{s|b}…`. The `s` key is the secret key and
