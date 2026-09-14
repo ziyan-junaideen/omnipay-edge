@@ -11,9 +11,14 @@ use Omnipay\Edge\Message\AbstractResponse;
  * Edge returned an existing resource for an idempotency key that was sent with
  * different facts, such as another amount.
  *
- * Edge matches the key on its value alone and hands back the original resource
- * without an error, so continuing would collect the wrong payment. Derive a new key
- * from the current facts (see IdempotencyKey::fingerprint()) and try again.
+ * For payment demands, Edge matches the key on its value alone and hands back the
+ * original resource without an error, so continuing would collect the wrong payment.
+ * Derive a new key from the current facts (see IdempotencyKey::fingerprint()) and try
+ * again.
+ *
+ * For refund demands, Edge itself answers a reused key with other facts with a 422, so
+ * this is only thrown when a refund it returns or lists under the key still differs
+ * from the request. Check the refunds already made before refunding with a new key.
  */
 class IdempotencyConflictException extends InvalidResponseException
 {

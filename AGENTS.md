@@ -108,6 +108,8 @@ integration hard-coded one and broke.
   different amount silently returns the old demand, in whatever state it has reached.
   The unique index on `payment_demands.idempotency_key` spans every merchant, so a key
   another merchant used fails at confirm instead.
+  Refund demands differ: their index is on `(merchant_id, idempotency_key)`, and a
+  reused key replays only when the payment, amount, reason and note match, otherwise 422.
 - Integer cents, USD only, minimum 10 cents. Countries are ISO 3166-1 alpha-3.
 
 ### Payment states

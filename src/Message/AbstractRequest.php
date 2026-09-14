@@ -186,8 +186,9 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
 
         if ($checksAmount && (int) $this->getAmountInteger() < $this->minimumAmountCents) {
             throw new InvalidRequestException(sprintf(
-                'The amount must be at least %d cents.',
-                $this->minimumAmountCents
+                'The amount must be at least %d %s.',
+                $this->minimumAmountCents,
+                $this->minimumAmountCents === 1 ? 'cent' : 'cents'
             ));
         }
     }

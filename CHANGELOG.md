@@ -38,3 +38,11 @@ All notable changes to this project are documented here. The format follows
   when its card differs from `previousCardReference`, the card of the last attempt
   (`getAttemptedCardReference()`), so a declined card is never authorised again. A
   confirmed demand is pending, never successful.
+- `refund()` creates a refund demand for a succeeded payment. The amount is always sent
+  and the currency never is, the reason defaults to `custom`, and a blank note is left
+  out. An unclear answer is sent again once with the same key, then resolved by listing
+  the payment's refunds and matching the key. A listing that can't be read, or a missing
+  key after no response or a 502, 503 or 504 (a request may still be running), leaves the
+  outcome unresolved and pending. A returned refund with another amount, reason or note
+  throws `IdempotencyConflictException`. `fetchRefund()` reads a refund and
+  `listRefunds()` lists a payment's refunds; only a `succeeded` refund is successful.

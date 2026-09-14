@@ -12,8 +12,11 @@ use Omnipay\Edge\Message\CreateCustomerRequest;
 use Omnipay\Edge\Message\FetchAddressRequest;
 use Omnipay\Edge\Message\FetchCardRequest;
 use Omnipay\Edge\Message\FetchCustomerRequest;
+use Omnipay\Edge\Message\FetchRefundRequest;
 use Omnipay\Edge\Message\FetchTransactionRequest;
+use Omnipay\Edge\Message\ListRefundsRequest;
 use Omnipay\Edge\Message\PurchaseRequest;
+use Omnipay\Edge\Message\RefundRequest;
 use Omnipay\Edge\Message\UpdateCustomerRequest;
 
 /**
@@ -221,6 +224,41 @@ class Gateway extends AbstractGateway
     public function fetchTransaction(array $parameters = []): FetchTransactionRequest
     {
         return $this->message(FetchTransactionRequest::class, $parameters);
+    }
+
+    /**
+     * Refunds all or part of a `succeeded` payment demand. The amount is always sent, so
+     * a partial refund never becomes a full one. An unclear answer is resolved by sending
+     * the same request once more, then by listing the payment's refunds. A new refund is
+     * `pending`, not refunded.
+     *
+     * @param array<string, mixed> $parameters `transactionReference` (the payment demand),
+     *                                         `amount`, `currency`, `idempotencyKey`, and
+     *                                         optionally `reason` and `reasonNote`
+     */
+    public function refund(array $parameters = []): RefundRequest
+    {
+        return $this->message(RefundRequest::class, $parameters);
+    }
+
+    /**
+     * Reads a refund demand, for polling. Only a `succeeded` refund is successful.
+     *
+     * @param array<string, mixed> $parameters `refundReference`
+     */
+    public function fetchRefund(array $parameters = []): FetchRefundRequest
+    {
+        return $this->message(FetchRefundRequest::class, $parameters);
+    }
+
+    /**
+     * Lists the refund demands of one payment demand.
+     *
+     * @param array<string, mixed> $parameters `transactionReference` (the payment demand)
+     */
+    public function listRefunds(array $parameters = []): ListRefundsRequest
+    {
+        return $this->message(ListRefundsRequest::class, $parameters);
     }
 
     /**

@@ -370,7 +370,8 @@ The mapping lives in `Omnipay\Edge\PaymentState`, which has no I/O:
   never shows `confirmed`.
 - `disputed` and `reversed` set `needsReconciliation()`: check the order by hand.
 - A state the gateway doesn't know sets `isUnrecognised()` and is never treated as
-  paid. There is no `refunded` state: refunds are separate refund demands.
+  paid. There is no `refunded` state: refunds are separate refund demands (see
+  [Refunds](#refunds)).
 - A `failed` demand can be retried **on the same id**: verify a card in the payment
   form again, then confirm again.
 
@@ -395,6 +396,111 @@ Webhooks are the source of truth. If you poll as well:
 - Edge never retries the call to the card processor (its authorize jobs run with
   `max_attempts: 1`), so a demand can stay `processing`. Stop polling after a bounded
   time, keep the order pending, and let the webhook settle it.
+
+### Refunds
+
+`refund()` refunds all or part of a **`succeeded`** payment demand. A `pending` or
+`processing` demand can't be refunded yet: Edge answers 422.
+
+```php
+use Omnipay\Edge\Exception\IdempotencyConflictException;
+use Omnipay\Edge\Message\RefundResponse;
+
+// A new key for every refund, stored before sending. Never the order id alone: an order
+// can be refunded more than once.
+$refundKey = $order->id . '-refund-' . $refundNumber;
+
+try {
+    $response = $gateway->refund([
+        'transactionReference' => $demandId,        // the payment demand
+        'amount' => '5.00',
+        'currency' => 'USD',
+        'idempotencyKey' => $refundKey,
+        'reason' => 'customer_canceled',           // optional, defaults to custom
+        'reasonNote' => 'Cancelled before shipping', // optional, up to 500 characters
+    ])->send();
+} catch (IdempotencyConflictException $e) {
+    // A refund Edge returned or listed for this key has another amount, reason or note.
+    // (Usually Edge refuses a reused key itself: OUTCOME_REJECTED with an idempotencyKey error.)
+}
+
+if ($response->getOutcome() === RefundResponse::OUTCOME_REFUND) {
+    $refundId = $response->getTransactionReference();  // persist it
+}
+
+if ($response->isSuccessful()) {
+    // refunded
+} elseif ($response->isPending()) {
+    // pending or processing, or unresolved (isUnresolved()): wait for the webhook
+} else {
+    // isFailed(), or nothing was created: getMessage() and getOutcome() say why
+}
+```
+
+- The amount is **always sent**, so a partial refund never becomes a full one. The
+  currency is checked (USD only) but never sent: Edge copies the payment's.
+- Refunds add up. Pending, processing and succeeded refunds count against the payment;
+  a failed one releases its amount.
+- `reason` is one of `RefundRequest::REASONS`: `service_not_delivered`,
+  `duplicate_charge`, `unauthorized_transaction`, `technical_issue`,
+  `customer_canceled`, `dissatisfied_experience`, `compliance_issue` or `custom`. An
+  unknown reason throws `Exception\InvalidFieldException` before sending. A blank
+  `reasonNote` is left out.
+- A missing `transactionReference` or `idempotencyKey` throws
+  `Exception\InvalidFieldException`. A 422 is reported through `getFieldErrors()`
+  against the same parameter names, so a demand that hasn't succeeded shows under
+  `transactionReference`.
+- A new refund is `pending`, never successful. It settles as `succeeded` or `failed`.
+
+| Refund `state` | `isSuccessful()` | `isPending()` | `isFailed()` |
+| --- | --- | --- | --- |
+| `pending`, `processing` | no | yes | no |
+| `succeeded` | yes | no | no |
+| `failed` | no | no | yes |
+
+#### Idempotency and unclear answers
+
+Refund keys are unique within your merchant account. Edge replays the refund a key made
+when the payment, amount, reason and note all match, and answers 422 when they don't. So
+sending the same refund again with the same key is always safe, and the gateway does it
+for you:
+
+1. No response, a 5xx, or a 2xx that isn't a refund for this payment and key is
+   unclear. The same request is sent **once** more with the same key.
+2. A refund from either request is the answer. A 4xx to the first request is a
+   rejection. A 4xx to the second isn't trusted yet: the first may still have landed.
+3. Otherwise the payment's refunds are listed and searched for the key (compared with
+   `hash_equals`):
+   - found: that refund is the answer, in whatever state it is;
+   - not found, and both requests got an answer from Edge itself: nothing was created.
+     `getOutcome()` is `OUTCOME_REJECTED` with the second request's error, or
+     `OUTCOME_NOT_CREATED`;
+   - not found after no response or a 502, 503 or 504: a request may still be running
+     on Edge, holding its refund uncommitted where the listing can't see it. The outcome
+     is unresolved, as below;
+   - the listing can't be read: `isUnresolved()`, `isPending()` and `isAmbiguous()` are
+     true. The refund may exist. **Don't refund again with a new key**: retry with the
+     same key, check `listRefunds()`, or wait for the webhook.
+
+`getAttempts()` says how many creates were sent (1 or 2).
+
+#### Reading refunds
+
+```php
+$refund = $gateway->fetchRefund(['refundReference' => $refundId])->send();
+$refund->getState();   // pending, processing, succeeded or failed
+
+$list = $gateway->listRefunds(['transactionReference' => $demandId])->send();
+foreach ($list->getRefunds() as $resource) {
+    $resource['id'];
+    $resource['attributes']['state'];
+}
+$list->findByIdempotencyKey($refundKey);   // the resource, or null
+```
+
+Edge has no pagination, so `listRefunds()` returns every refund of the payment. It
+silently drops a filter it can't apply, so `getRefunds()` keeps only the refunds whose
+`payment_demand` is the one asked for. Edge has no way to cancel or void a refund.
 
 ### Keys and modes
 
