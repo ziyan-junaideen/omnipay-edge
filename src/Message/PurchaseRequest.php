@@ -37,20 +37,6 @@ class PurchaseRequest extends AbstractRequest
         'shipping_address' => 'shippingAddressReference',
     ];
 
-    public function getIdempotencyKey(): ?string
-    {
-        return $this->getParameter('idempotencyKey');
-    }
-
-    /**
-     * Store the key before sending, and send the same key when retrying after an
-     * unclear outcome. See IdempotencyKey::fingerprint() for a derived one.
-     */
-    public function setIdempotencyKey(?string $value): static
-    {
-        return $this->setParameter('idempotencyKey', $value);
-    }
-
     /**
      * The consumer address id for billing, as returned by createAddress().
      */

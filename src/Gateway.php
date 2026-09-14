@@ -6,6 +6,7 @@ namespace Omnipay\Edge;
 
 use Omnipay\Common\AbstractGateway;
 use Omnipay\Edge\Message\AbstractRequest;
+use Omnipay\Edge\Message\CompletePurchaseRequest;
 use Omnipay\Edge\Message\CreateAddressRequest;
 use Omnipay\Edge\Message\CreateCustomerRequest;
 use Omnipay\Edge\Message\FetchAddressRequest;
@@ -193,6 +194,21 @@ class Gateway extends AbstractGateway
     public function purchase(array $parameters = []): PurchaseRequest
     {
         return $this->message(PurchaseRequest::class, $parameters);
+    }
+
+    /**
+     * Confirms a payment demand once the browser reports `payment_method_verified`.
+     * The demand is read first and only confirmed when it matches the amount, currency
+     * and idempotency key and has a verified card. Safe to call twice. A confirmed
+     * demand is `pending`, not paid.
+     *
+     * @param array<string, mixed> $parameters `transactionReference`, `amount`, `currency`,
+     *                                         `idempotencyKey`, and `previousCardReference`
+     *                                         to retry a failed demand
+     */
+    public function completePurchase(array $parameters = []): CompletePurchaseRequest
+    {
+        return $this->message(CompletePurchaseRequest::class, $parameters);
     }
 
     /**

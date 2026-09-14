@@ -112,9 +112,8 @@ is no `createCard()`. `fetchCard()` exposes `getExternalState()`, `isConfirmed()
 
 `purchase()` creates an **unconfirmed** payment demand. Nothing is charged: the browser
 mounts Edge's hosted payment form against the demand, the shopper's card is verified
-there (including 3DS), and your server then confirms it (`completePurchase()`, coming in
-[#7](https://github.com/ziyan-junaideen/omnipay-edge/issues/7)). There are no redirects
-and no return URLs.
+there (including 3DS), and your server then confirms it with
+[`completePurchase()`](#complete-purchase). There are no redirects and no return URLs.
 
 ```php
 use Omnipay\Edge\IdempotencyKey;
@@ -223,7 +222,7 @@ Edge's `assets/js/edge.js`:
     } finally {
       off.forEach((unsubscribe) => unsubscribe());
     }
-    // POST to your server, which confirms the demand (completePurchase(), coming in #7)
+    // POST to your server, which confirms the demand with completePurchase()
   }
 </script>
 ```
@@ -231,6 +230,92 @@ Edge's `assets/js/edge.js`:
 `payment_method_changed` fires whenever the card fields change, including after a
 successful verification. An edited card invalidates the earlier result, so check
 verification again before you submit.
+
+### Complete purchase
+
+Once the browser reports `payment_method_verified`, confirm the demand from your server.
+Pass what you stored at purchase, and the card of the last attempt if there was one:
+
+```php
+use Omnipay\Edge\Exception\DemandMismatchException;
+
+try {
+    $response = $gateway->completePurchase([
+        'transactionReference' => $demandId,
+        'amount' => '25.00',
+        'currency' => 'USD',
+        'idempotencyKey' => $idempotencyKey,
+        'previousCardReference' => $order->edgeCardId,   // null on the first attempt
+    ])->send();
+} catch (DemandMismatchException $e) {
+    // The demand is for another amount, currency or key: nothing was confirmed.
+    // Create a new demand with a new key.
+}
+
+if ($response->getAttemptedCardReference() !== null) {
+    $order->edgeCardId = $response->getAttemptedCardReference();   // persist it
+}
+
+if ($response->isSuccessful()) {
+    // paid (only when Edge already shows the demand succeeded)
+} elseif ($response->isPending()) {
+    // not paid yet: keep the order pending, wait for the webhook or poll fetchTransaction()
+} elseif ($response->isAwaitingPaymentMethod()) {
+    $response->getMessage();   // show it and let the shopper verify a card again
+} else {
+    $response->getMessage();   // nothing was charged; see getOutcome()
+}
+```
+
+**A successful confirm is not a payment.** It leaves the demand `pending`: Edge accepted
+it but hasn't sent it to the card network. A decline (a wrong CVC, insufficient funds)
+arrives later as `failed`, through the webhook or `fetchTransaction()`.
+
+`completePurchase()` is safe to call twice and safe when a response is lost:
+
+1. It reads the demand (`GET payment_demands/{id}?include=payment_method`) and checks
+   the amount, currency and idempotency key (the key with `hash_equals`). A mismatch
+   throws `Exception\DemandMismatchException` before anything is confirmed; its
+   message never contains either key.
+2. It acts on the state it read:
+
+   | `processor_state` | Confirm sent? | Result |
+   | --- | --- | --- |
+   | `incomplete`, `ready` | Yes, if the included payment method is `confirmed` | See below |
+   | `failed` | Yes, if the payment method is `confirmed` and isn't `previousCardReference` | See below |
+   | `pending`, `processing` | No: a duplicate submit | `isPending()` |
+   | `succeeded` | No | `isSuccessful()` |
+   | `disputed`, `reversed` | No | `needsReconciliation()` |
+   | `confirmed`, `canceled`, anything else | No | an error message |
+
+   Without a verified card nothing is sent, and `isAwaitingPaymentMethod()` is true.
+   Retrying a `failed` demand is the same call: the shopper verifies a card again in
+   the payment form on the same demand.
+
+   The declined card stays `confirmed`, and Edge doesn't record which card an attempt
+   used. So store `getAttemptedCardReference()` whenever it isn't null and pass it back as
+   `previousCardReference`. A `failed` demand is only confirmed again when its card is a
+   different one. Verifying in the payment form always creates a new payment method, so
+   a real retry passes. A reload or a late duplicate submit doesn't: nothing is sent,
+   and the declined card is never authorised again without the shopper. Without
+   `previousCardReference`, a `failed` demand is never retried.
+3. It sends `PATCH payment_demands/{id}/confirm`. A 2xx demand is mapped through
+   `PaymentState`. A 422 is a hard reject: `getMessage()` and `getAttributeErrors()`
+   say why.
+4. An unclear answer (no response, a 405, a 5xx or a malformed 2xx) is resolved by
+   reading the demand again:
+   - now `pending`, `processing` or `succeeded`: the confirm landed;
+   - the same state **and** the same `updated_at`: nothing happened, so the confirm is
+     sent **once** more;
+   - changed and now `failed`: the card network declined it, and `getMessage()` is the
+     shopper message;
+   - anything else: `isUnresolved()` and `isPending()` are true. Don't charge again:
+     poll `fetchTransaction()` or wait for the webhook.
+
+`getOutcome()` returns one of the `CompletePurchaseResponse::OUTCOME_` constants,
+`getConfirmAttempts()` how many confirms were sent (0, 1 or 2), and
+`getTransactionReference()` the demand id. The demand getters from `fetchTransaction()`
+(`getProcessorState()`, `getCvc2Check()` and so on) are available too.
 
 ### Payment status
 

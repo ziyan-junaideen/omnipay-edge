@@ -24,7 +24,8 @@ src/PaymentState.php     processor_state to Omnipay outcomes and decline message
 src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
 src/CardMapper.php       CreditCard to customer and address attributes, card field names
 src/Exception/           InvalidFieldException (a local check that names the parameter),
-                         IdempotencyConflictException (a replayed key with other facts)
+                         IdempotencyConflictException (a replayed key with other facts),
+                         DemandMismatchException (completePurchase on another payment)
 src/Message/             AbstractRequest (URLs, headers, send helpers), AbstractResponse
                          (JSON:API parsing, errors, ambiguity), HttpResult,
                          AbstractPaymentDemandResponse (shared demand getters), and one

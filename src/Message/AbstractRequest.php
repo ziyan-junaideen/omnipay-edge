@@ -135,6 +135,21 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
     }
 
     /**
+     * The caller's idempotency key. Store it before sending, and send the same key
+     * when retrying after an unclear outcome. See IdempotencyKey::fingerprint() for a
+     * derived one.
+     */
+    public function getIdempotencyKey(): ?string
+    {
+        return $this->getParameter('idempotencyKey');
+    }
+
+    public function setIdempotencyKey(?string $value): static
+    {
+        return $this->setParameter('idempotencyKey', $value);
+    }
+
+    /**
      * The request parameter an Edge attribute or relationship was built from, so a
      * 422 can be reported against the caller's input. Defaults to the Edge name.
      */

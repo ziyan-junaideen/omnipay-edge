@@ -30,3 +30,11 @@ All notable changes to this project are documented here. The format follows
   and notification outcomes (only `succeeded` is paid), flags `disputed` and `reversed`
   for reconciliation and unknown states as unrecognised, and picks a shopper message for
   a failed demand from the CVC and AVS checks.
+- `completePurchase()` confirms a payment demand. It reads the demand first, throws
+  `DemandMismatchException` when the amount, currency or idempotency key differ, sends
+  no confirm without a verified payment method or from a state Edge can't confirm, and
+  resolves an unclear confirm by reading the demand again, repeating the confirm once
+  only when the state and `updated_at` are unchanged. A `failed` demand is only retried
+  when its card differs from `previousCardReference`, the card of the last attempt
+  (`getAttemptedCardReference()`), so a declined card is never authorised again. A
+  confirmed demand is pending, never successful.

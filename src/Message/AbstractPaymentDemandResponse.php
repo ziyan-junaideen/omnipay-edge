@@ -49,6 +49,14 @@ abstract class AbstractPaymentDemandResponse extends AbstractResponse
         return parent::isSuccessful() ? PaymentState::fromProcessorState($this->getProcessorState()) : null;
     }
 
+    /**
+     * When the demand last changed, as Edge's ISO 8601 UTC timestamp with microseconds.
+     */
+    public function getUpdatedAt(): ?string
+    {
+        return $this->stringAttribute('updated_at');
+    }
+
     public function getAmountCents(): ?int
     {
         $amount = $this->getAttribute('amount_cents');
