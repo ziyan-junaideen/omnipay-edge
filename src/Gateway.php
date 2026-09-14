@@ -6,6 +6,7 @@ namespace Omnipay\Edge;
 
 use Omnipay\Common\AbstractGateway;
 use Omnipay\Edge\Message\AbstractRequest;
+use Omnipay\Edge\Message\AcceptNotificationRequest;
 use Omnipay\Edge\Message\CompletePurchaseRequest;
 use Omnipay\Edge\Message\CreateAddressRequest;
 use Omnipay\Edge\Message\CreateCustomerRequest;
@@ -15,6 +16,7 @@ use Omnipay\Edge\Message\FetchCustomerRequest;
 use Omnipay\Edge\Message\FetchRefundRequest;
 use Omnipay\Edge\Message\FetchTransactionRequest;
 use Omnipay\Edge\Message\ListRefundsRequest;
+use Omnipay\Edge\Message\Notification;
 use Omnipay\Edge\Message\PurchaseRequest;
 use Omnipay\Edge\Message\RefundRequest;
 use Omnipay\Edge\Message\UpdateCustomerRequest;
@@ -63,6 +65,7 @@ class Gateway extends AbstractGateway
             'secretKey' => '',
             'publishableKey' => '',
             'webhookSecret' => '',
+            'webhookTolerance' => WebhookSignature::DEFAULT_TOLERANCE,
             'apiBaseUrl' => self::DEFAULT_API_BASE_URL,
             'dashboardHost' => self::DEFAULT_DASHBOARD_HOST,
             'browserSdkUrl' => self::DEFAULT_BROWSER_SDK_URL,
@@ -97,6 +100,22 @@ class Gateway extends AbstractGateway
     public function setWebhookSecret(?string $value): static
     {
         return $this->setParameter('webhookSecret', $value);
+    }
+
+    /**
+     * The largest accepted distance between a webhook signature's timestamp and now,
+     * in seconds. Edge sets none.
+     *
+     * @return int|string|null
+     */
+    public function getWebhookTolerance()
+    {
+        return $this->getParameter('webhookTolerance');
+    }
+
+    public function setWebhookTolerance(int|string|null $value): static
+    {
+        return $this->setParameter('webhookTolerance', $value);
     }
 
     public function getApiBaseUrl(): ?string
@@ -259,6 +278,24 @@ class Gateway extends AbstractGateway
     public function listRefunds(array $parameters = []): ListRefundsRequest
     {
         return $this->message(ListRefundsRequest::class, $parameters);
+    }
+
+    /**
+     * Verifies a webhook delivery with `webhookSecret` and returns its event. Reads the
+     * raw body and headers from the HTTP request, or from the `rawBody` and `headers`
+     * parameters. Nothing is sent to Edge.
+     *
+     * @param array<string, mixed> $parameters optionally `rawBody`, `headers` and `webhookTolerance`
+     *
+     * @throws \Omnipay\Edge\Exception\InvalidWebhookException when the delivery is refused
+     * @throws \Omnipay\Common\Exception\InvalidRequestException when webhookSecret is missing
+     */
+    public function acceptNotification(array $parameters = []): Notification
+    {
+        /** @var AcceptNotificationRequest $request */
+        $request = $this->createRequest(AcceptNotificationRequest::class, $parameters);
+
+        return $request->send();
     }
 
     /**

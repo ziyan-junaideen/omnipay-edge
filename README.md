@@ -502,6 +502,137 @@ Edge has no pagination, so `listRefunds()` returns every refund of the payment. 
 silently drops a filter it can't apply, so `getRefunds()` keeps only the refunds whose
 `payment_demand` is the one asked for. Edge has no way to cancel or void a refund.
 
+### Webhooks
+
+Edge posts an event to your webhook subscription's URL whenever a payment demand, refund
+or subscription changes. `acceptNotification()` verifies the delivery and reads the event.
+It sends nothing to Edge.
+
+```php
+use Omnipay\Common\Exception\InvalidRequestException;
+use Omnipay\Edge\Exception\InvalidWebhookException;
+use Omnipay\Edge\Message\Notification;
+
+$gateway->setWebhookSecret((string) getenv('EDGE_WEBHOOK_SECRET'));   // the subscription's secret key
+
+try {
+    // Reads the raw body and headers of the current request. Or pass them explicitly:
+    // ['rawBody' => $psrRequest->getBody()->__toString(), 'headers' => $psrRequest->getHeaders()]
+    $notification = $gateway->acceptNotification();
+} catch (InvalidWebhookException $e) {
+    // Forged, or a wrong secret or clock on your side: log it and alert. A 5xx keeps
+    // Edge retrying a genuine delivery while you fix the setup; a forged request is
+    // never retried by anyone.
+    http_response_code(500);
+    return;
+} catch (InvalidRequestException $e) {
+    http_response_code(500);   // misconfigured, such as no webhookSecret: Edge retries later
+    return;
+}
+
+$claim = $events->claim($notification->getEventId());   // new, in progress or done
+
+if ($claim === 'done') {
+    http_response_code(200);   // already handled
+    return;
+}
+
+if ($claim === 'in progress') {
+    http_response_code(500);   // another attempt is still running: ask Edge to come back
+    return;
+}
+
+try {
+    switch ($notification->getResourceType()) {
+        case Notification::RESOURCE_PAYMENT_DEMANDS:
+            $demand = $gateway->fetchTransaction([
+                'transactionReference' => $notification->getTransactionReference(),
+            ])->send();
+            // settle the order from $demand, as in Payment status
+            break;
+        case Notification::RESOURCE_REFUND_DEMANDS:
+            $refund = $gateway->fetchRefund([
+                'refundReference' => $notification->getTransactionReference(),
+            ])->send();
+            $refund->getPaymentDemandReference();   // the event doesn't carry it
+            break;
+        default:
+            break;   // not one you handle: still answer 200
+    }
+} catch (Throwable $e) {
+    $events->release($notification->getEventId());
+    http_response_code(500);   // Edge retries
+    return;
+}
+
+$events->markDone($notification->getEventId());
+http_response_code(200);
+```
+
+- **Verification comes first.** The `edge-signature` header is `t=<unix seconds>,v3=<hex>`:
+  an HMAC-SHA256 of `<t>.<raw body>` keyed by the secret. `acceptNotification()` checks it
+  against the raw body before decoding anything, so never pass it a body that was decoded
+  and re-encoded. Unknown tokens, such as a future `v4`, are ignored.
+- **Tolerance.** Edge signs every attempt with a fresh `t` and sets no limit of its own.
+  The gateway accepts a `t` within 300 seconds of now; change it with `webhookTolerance`.
+- **Refused deliveries** throw `Exception\InvalidWebhookException`: a missing, repeated,
+  wrong or stale signature, or a verified body that isn't an Edge event. A genuine
+  delivery is refused too when the secret is the wrong one (another mode, or rotated) or
+  your clock is off, so alert on these rather than dropping them silently. The legacy
+  `x-hub-signature` header (webhook delivery versions v1 and v2) is a hash of the secret
+  alone, the same on every delivery and blind to the body, so it is refused too. A missing
+  `webhookSecret` or an invalid `webhookTolerance` throws a plain `InvalidRequestException`.
+  `WebhookSignature::verify()` is the same check with no I/O.
+- **Don't trust the payload's `mode`.** Each webhook subscription belongs to one mode and
+  has its own secret, so the mode is the one whose stored secret verified the signature.
+  Give each mode its own endpoint, or try each stored secret in turn.
+- **Re-read the resource before acting.** The snapshot in `getSnapshot()` is small, taken
+  when the event was recorded, and deliveries can arrive late or out of order.
+- **Deduplicate in your own storage.** There is no event-id header; the event id is
+  `getEventId()`. Claim it before processing, release the claim if processing throws, and
+  mark it done afterwards. Answer 200 only for a claim that is done: if Edge gives up
+  waiting on a slow attempt and retries, a 200 for a claim still in progress would lose
+  the event should that attempt then fail. Handlers that respond quickly (for example by
+  queueing the work in the same transaction as the claim) avoid the case. The gateway
+  keeps no state.
+- **A refund event doesn't name its payment demand.** Read `refund_demands/{id}` with
+  `fetchRefund()` to find it.
+
+Answer with the status you mean:
+
+| Status | Edge does |
+| --- | --- |
+| 200–204 | Treats the delivery as done. Use it for anything handled or never to be handled, such as unknown events, and for refused signatures you don't want retried |
+| 400, 401, 403, 404, 405 | Stops retrying. Avoid these unless you mean it |
+| anything else (5xx, 422, 429, a timeout) | Retries after 10 seconds, 5 minutes, 30 minutes, 1 hour and 2 hours |
+
+The notification implements Omnipay's `NotificationInterface`:
+
+- `getTransactionReference()` is the **resource id** (the payment demand, refund or
+  subscription id), never the event id.
+- `getEventId()`, `getResourceType()`, `getResourceId()`, `getSlug()`, `getEventCode()`
+  (`<resource_type>.<slug>`), `getMode()` and `getSnapshot()` read the event.
+- `getMessage()` is the event code. Edge sends no decline reason.
+- `getTransactionStatus()` maps the snapshot, which may already be out of date:
+
+| Resource type | Snapshot field | `completed` | `failed` | Otherwise |
+| --- | --- | --- | --- | --- |
+| `transaction.payment_demands` | `processor_state` | through `PaymentState` | through `PaymentState` | `pending` |
+| `transaction.refund_demands` | `state` | `succeeded` | `failed` | `pending` |
+| `transaction.payment_subscriptions` | `status` | `active` | `cancelled` | `pending` |
+| anything else | | | | `pending` |
+
+`isSuccessful()` is true only for a `succeeded` payment demand, a `succeeded` refund or an
+`active` subscription. `isCancelled()` is true for a `cancelled` subscription (and a
+`canceled` payment intent). `getPaymentState()` returns the `PaymentState` of a payment demand
+event.
+
+Edge emits `transaction.payment_demands.{created,updated,succeeded,failed}`,
+`transaction.refund_demands.{created,updated,failed}` and
+`transaction.payment_subscriptions.{created,updated}`, plus `consumer.*` events for
+customers, addresses and payment methods. A succeeded refund arrives as `updated`.
+`transaction.payment_demands.refunded` and `.disputed` are documented but never sent.
+
 ### Keys and modes
 
 Edge keys look like `ept_{live|sandbox}_{s|b}…`. The `s` key is the secret key and

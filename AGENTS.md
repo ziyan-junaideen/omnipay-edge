@@ -21,15 +21,18 @@ src/Gateway.php          AbstractGateway: key and host parameters, one method pe
 src/Keys.php             key format, role, mode, pair and testMode checks
 src/IdempotencyKey.php   fingerprint(): a caller-derived key, HMAC of canonical facts
 src/PaymentState.php     processor_state to Omnipay outcomes and decline messages, no I/O
+src/WebhookSignature.php edge-signature (v3) verification, no I/O
 src/Countries.php        alpha-2/alpha-3 to alpha-3, from the backend's geo database
 src/CardMapper.php       CreditCard to customer and address attributes, card field names
 src/Exception/           InvalidFieldException (a local check that names the parameter),
                          IdempotencyConflictException (a replayed key with other facts),
-                         DemandMismatchException (completePurchase on another payment)
+                         DemandMismatchException (completePurchase on another payment),
+                         InvalidWebhookException (a refused webhook delivery)
 src/Message/             AbstractRequest (URLs, headers, send helpers), AbstractResponse
                          (JSON:API parsing, errors, ambiguity), HttpResult,
-                         AbstractPaymentDemandResponse (shared demand getters), and one
-                         request/response class per API call
+                         AbstractPaymentDemandResponse (shared demand getters), one
+                         request/response class per API call, and AcceptNotificationRequest
+                         with its Notification (verifies a webhook, sends nothing)
 tests/                   PHPUnit 10, Omnipay test cases + mock HTTP client
 tests/Message/           MessageTestCase asserts the one request sent, headers and body
 tests/Mock/              raw HTTP responses for setMockHttpResponse()
@@ -123,6 +126,24 @@ schemas but never set. `GET payment_demands/{id}` looks in demands before intent
 a confirmed intent's demand shares its id, so the GET never returns `confirmed`.
 `cvc2_check` defaults to `unprocessed` and the AVS fields to `unverified`; there is no
 decline reason in the view (`failure_reason` is a column, not an attribute).
+
+### Webhooks
+
+- v3 deliveries carry `edge-signature: t=<unix seconds>,v3=<hex>`, the lowercase hex
+  HMAC-SHA256 of `<t>.<raw body>` keyed by the webhook subscription's `secret_key` (used
+  as the string, not decoded). Every attempt gets a fresh `t`. v1 and v2 send only
+  `x-hub-signature`, a SHA-1 of the secret that never covers the body.
+- The v2/v3 body is `{"data":{"id","type":"events","attributes":{mode, resource_type,
+  resource_id, slug, data}}}`. `attributes.data` is itself `{id, type, attributes}`, so the
+  snapshot fields sit one level deeper. There is no `created_at` and no event-id header.
+- Emitted event codes: `transaction.payment_demands.{created,updated,succeeded,failed}`,
+  `transaction.refund_demands.{created,updated,failed}` (a succeeded refund is `updated`),
+  `transaction.payment_subscriptions.{created,updated}`, and `consumer.*` events.
+  `refunded` and `disputed` are documented but never emitted. Unconfirmed creates emit
+  nothing.
+- Subscription `status` is `pending`, `active`, `paused` or `cancelled` (double L).
+- 200–204 is success; 400, 401, 403, 404 and 405 stop retries; anything else is retried
+  after 10 s, 5 m, 30 m, 1 h and 2 h.
 
 ## Testing
 

@@ -46,3 +46,10 @@ All notable changes to this project are documented here. The format follows
   outcome unresolved and pending. A returned refund with another amount, reason or note
   throws `IdempotencyConflictException`. `fetchRefund()` reads a refund and
   `listRefunds()` lists a payment's refunds; only a `succeeded` refund is successful.
+- `acceptNotification()` verifies an Edge webhook delivery and returns a `Notification`.
+  `WebhookSignature::verify()` checks the v3 `edge-signature` header against the raw body
+  with a tolerance (default 300 seconds, `webhookTolerance`), ignoring unknown tokens such
+  as `v4` and refusing the legacy `x-hub-signature`. A refused delivery throws
+  `InvalidWebhookException`, before the body is decoded. The notification's transaction
+  reference is the resource id, and its status maps the snapshot: payment demands through
+  `PaymentState`, refunds `succeeded` and subscriptions `active` to completed.

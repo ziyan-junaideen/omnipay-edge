@@ -122,6 +122,22 @@ abstract class AbstractRequest extends OmnipayAbstractRequest
     }
 
     /**
+     * Accepted so every gateway parameter reaches the request. Only acceptNotification()
+     * uses it.
+     *
+     * @return int|string|null
+     */
+    public function getWebhookTolerance()
+    {
+        return $this->getParameter('webhookTolerance');
+    }
+
+    public function setWebhookTolerance(int|string|null $value): static
+    {
+        return $this->setParameter('webhookTolerance', $value);
+    }
+
+    /**
      * The Edge customer id, as returned by createCustomer().
      */
     public function getCustomerReference(): ?string

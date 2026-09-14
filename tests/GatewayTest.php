@@ -47,4 +47,10 @@ class GatewayTest extends GatewayTestCase
         $this->assertSame('ept_sandbox_b_test', $this->gateway->getPublishableKey());
         $this->assertSame('whsec_test', $this->gateway->getWebhookSecret());
     }
+
+    public function testWebhookToleranceDefaultsToFiveMinutes(): void
+    {
+        $this->assertSame(300, $this->gateway->getWebhookTolerance());
+        $this->assertTrue($this->gateway->supportsAcceptNotification());
+    }
 }
